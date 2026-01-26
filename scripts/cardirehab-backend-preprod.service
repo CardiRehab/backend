@@ -1,0 +1,23 @@
+[Unit]
+Description=CardiRehab Backend Spring Boot Application (Preprod)
+After=network.target mariadb.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/html/backend
+ExecStart=/usr/lib/jvm/java-17-openjdk-amd64/bin/java $JAVA_OPTS -jar /var/www/html/backend/target/crehab.war
+ExecStop=/bin/kill -15 $MAINPID
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cardirehab-backend-preprod
+
+EnvironmentFile=/var/www/html/backend/.env.preprod
+Environment="SPRING_PROFILES_ACTIVE=preprod"
+Environment="JAVA_OPTS=-Xms512m -Xmx1024m"
+
+[Install]
+WantedBy=multi-user.target
