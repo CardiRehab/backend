@@ -25,6 +25,7 @@ target/
 /dist/
 /nbdist/
 /resources/
+/secure_files/
 /.nb-gradle/
 build/
 !**/src/main/**/build/
