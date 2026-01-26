@@ -66,7 +66,15 @@ mvn compile -q
 echo "Running populate attachments script..."
 echo ""
 
-# Run the Java standalone script
+# Debug: Show which database we're connecting to
+if [ -n "$DB_URL" ]; then
+    echo "Database URL: $DB_URL"
+else
+    echo "⚠ Warning: DB_URL not set, will use default (herplat)"
+fi
+echo ""
+
+# Run the Java standalone script with environment variables explicitly passed
 mvn exec:java \
     -Dexec.mainClass="com.healthcare.herplatform.scripts.StandalonePopulateAttachments" \
     -Dexec.classpathScope=runtime \

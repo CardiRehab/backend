@@ -32,6 +32,9 @@ public class StandalonePopulateAttachments {
         String dbUrl = System.getenv("DB_URL");
         if (dbUrl == null) {
             dbUrl = "jdbc:mysql://localhost:3306/herplat?allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=UTC";
+            System.out.println("⚠ Warning: DB_URL not set, using default: " + dbUrl);
+        } else {
+            System.out.println("Using database URL: " + dbUrl);
         }
         String dbUser = System.getenv("DB_USERNAME");
         if (dbUser == null) {
