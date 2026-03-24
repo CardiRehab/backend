@@ -42,7 +42,7 @@ public class StandalonePopulateAttachments {
         }
         String dbPassword = System.getenv("DB_PASSWORD");
         if (dbPassword == null) {
-            dbPassword = "ikka@#4321";
+            dbPassword = "123123123";
         }
         
         String documentsDir = System.getenv("ATTACHMENTS_DIR");
