@@ -1,289 +1,176 @@
-# Deployment Guide - Environment-Based Configuration
-
-This guide explains how to deploy the CardiRehab backend application using environment-based configuration.
+# Deployment Guide - CI/CD with GitHub Actions
 
 ## Overview
 
-The application now supports multiple environments (local, stage, production) through:
-- **Environment-specific property files**: `application-{env}.properties`
-- **Environment variable files**: `.env.{env}` files
-- **Deployment scripts**: Automated build and deployment
+The application deploys automatically via GitHub Actions using SSH:
 
-## Quick Start
+- **Push/merge to `main`** → deploys to **preprod** (`backend-preprod` on server)
+- **Push/merge to `production`** → deploys to **production** (`backend-prod` on server)
 
-### For Local Development
+Both environments run on the **same server** as separate systemd services with separate directories. No Docker needed.
+
+## Architecture
+
+```
+GitHub                          Your Server
+┌──────────┐   SSH deploy   ┌─────────────────────────────────────┐
+│  main    ├───────────────►│ /var/www/html/backend-preprod       │
+│  branch  │                │   service: cardirehab-backend-preprod│
+│          │                │   port: 9596                        │
+├──────────┤                ├─────────────────────────────────────┤
+│production├───────────────►│ /var/www/html/backend-prod          │
+│  branch  │                │   service: cardirehab-backend-prod  │
+│          │                │   port: 9595                        │
+└──────────┘                └─────────────────────────────────────┘
+```
+
+## Workflow
+
+1. Develop features locally on any branch
+2. Push or merge to `main` → **auto-deploys to preprod**
+3. Test and verify on preprod
+4. Merge `main` into `production` → **auto-deploys to production**
+
+## One-Time Server Setup
+
+Run this once on your server to set up the directory structure:
 
 ```bash
-# 1. Copy environment template
+sudo bash scripts/server-init.sh git@github.com:youruser/backend.git
+```
+
+This script:
+- Clones the repo into `/var/www/html/backend-preprod` (tracks `main`)
+- Clones the repo into `/var/www/html/backend-prod` (tracks `production`)
+- Copies existing `.env` files if found
+- Installs systemd services
+- Configures passwordless sudo for the deploy user (only for service management)
+
+After running, configure your env files:
+```bash
+nano /var/www/html/backend-preprod/.env.preprod
+nano /var/www/html/backend-prod/.env.prod
+```
+
+## GitHub Secrets
+
+Add these in your GitHub repo → Settings → Secrets and variables → Actions:
+
+| Secret | Description | Example |
+|--------|-------------|---------|
+| `SERVER_HOST` | Server IP or hostname | `203.0.113.50` |
+| `SERVER_USER` | SSH username on server | `deploy` |
+| `SERVER_SSH_KEY` | Private SSH key (full content) | Contents of `~/.ssh/id_ed25519` |
+| `SERVER_SSH_PORT` | SSH port (optional, defaults to 22) | `22` |
+
+### Generating an SSH key pair for deployment
+
+```bash
+# On your local machine (or the server)
+ssh-keygen -t ed25519 -C "github-actions-deploy" -f ~/.ssh/deploy_key
+
+# Add the public key to the server's authorized_keys
+ssh-copy-id -i ~/.ssh/deploy_key.pub youruser@yourserver
+
+# Copy the private key content — paste this as SERVER_SSH_KEY in GitHub
+cat ~/.ssh/deploy_key
+```
+
+## Local Development
+
+No changes to local dev workflow:
+
+```bash
 cp .env.example .env.local
-
-# 2. Edit .env.local with your local settings
 nano .env.local
-
-# 3. Build and run
-./deploy.sh local
 ./run.sh local
-```
-
-### For Stage/Preprod Deployment
-
-```bash
-# 1. Pull latest code
-git pull origin main
-
-# 2. Update .env.stage if needed
-nano .env.stage
-
-# 3. Deploy and start
-sudo ./scripts/deploy-and-start.sh stage
-```
-
-### For Production Deployment
-
-```bash
-# 1. Pull latest code
-git pull origin main
-
-# 2. Update .env.prod if needed
-nano .env.prod
-
-# 3. Deploy and start
-sudo ./scripts/deploy-and-start.sh prod
 ```
 
 ## Environment Files
 
-### Structure
+| File | Purpose | Committed? |
+|------|---------|------------|
+| `.env.example` | Template with placeholders | Yes |
+| `.env.local` | Local development | No |
+| `.env.preprod` | Preprod (on server only) | No |
+| `.env.prod` | Production (on server only) | No |
 
-- `.env.example` - Template file (committed to git)
-- `.env.local` - Local development (not committed)
-- `.env.stage` - Stage/preprod environment (not committed)
-- `.env.prod` - Production environment (not committed)
+## Manual Deployment (if needed)
 
-### Configuration Variables
-
-All environment files contain:
-
-```bash
-# Database Configuration
-DB_URL=jdbc:mysql://localhost:3306/herplat?allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=UTC
-DB_USERNAME=root
-DB_PASSWORD=your_password
-
-# Server Configuration
-SERVER_PORT=9595
-
-# Logging
-LOG_FILE_PATH=/var/log/herplatform/application.log
-
-# Secure Files
-SECURE_FILES_PATH=/var/secure_files/files
-
-# JWT Secret
-JWT_SECRET=CardiRehabSecretKeyX12138yAn4
-```
-
-## Deployment Scripts
-
-### `deploy.sh`
-
-Builds the application for a specific environment.
+SSH into the server and run:
 
 ```bash
-./deploy.sh [local|stage|prod]
+# Preprod
+cd /var/www/html/backend-preprod
+bash scripts/ci-deploy.sh preprod
+
+# Production
+cd /var/www/html/backend-prod
+bash scripts/ci-deploy.sh prod
 ```
 
-**What it does:**
-1. Loads environment variables from `.env.{env}` file
-2. Sets Spring profile
-3. Builds the WAR file using Maven
-
-### `run.sh`
-
-Runs the application locally (for testing).
+## Service Management
 
 ```bash
-./run.sh [local|stage|prod]
+# Preprod
+sudo systemctl status cardirehab-backend-preprod
+sudo systemctl restart cardirehab-backend-preprod
+sudo journalctl -u cardirehab-backend-preprod -f
+
+# Production
+sudo systemctl status cardirehab-backend-prod
+sudo systemctl restart cardirehab-backend-prod
+sudo journalctl -u cardirehab-backend-prod -f
 ```
 
-### `scripts/deploy-and-start.sh`
+## File Structure (on server)
 
-Complete deployment: build, deploy, and start systemd service.
-
-```bash
-sudo ./scripts/deploy-and-start.sh [stage|prod]
 ```
-
-**What it does:**
-1. Builds the application
-2. Stops existing service
-3. Sets proper permissions
-4. Starts the service
-5. Checks service status
-
-### `scripts/setup-service.sh`
-
-Sets up systemd service for an environment (one-time setup).
-
-```bash
-sudo ./scripts/setup-service.sh [stage|prod]
+/var/www/html/
+├── backend-preprod/          # main branch
+│   ├── .env.preprod          # preprod env vars (not in git)
+│   ├── scripts/
+│   │   ├── ci-deploy.sh      # CI deploy script
+│   │   └── ...
+│   ├── target/
+│   │   └── crehab.war
+│   └── src/...
+│
+├── backend-prod/             # production branch
+│   ├── .env.prod             # prod env vars (not in git)
+│   ├── scripts/
+│   │   ├── ci-deploy.sh
+│   │   └── ...
+│   ├── target/
+│   │   └── crehab.war
+│   └── src/...
 ```
-
-## Systemd Services
-
-### Service Files
-
-- `scripts/cardirehab-backend-stage.service` - Stage environment
-- `scripts/cardirehab-backend-prod.service` - Production environment
-
-### Service Management
-
-```bash
-# Start service
-sudo systemctl start cardirehab-backend-{stage|prod}
-
-# Stop service
-sudo systemctl stop cardirehab-backend-{stage|prod}
-
-# Restart service
-sudo systemctl restart cardirehab-backend-{stage|prod}
-
-# Check status
-sudo systemctl status cardirehab-backend-{stage|prod}
-
-# View logs
-sudo journalctl -u cardirehab-backend-{stage|prod} -f
-```
-
-## Initial Setup
-
-### First Time Setup for Stage
-
-```bash
-# 1. Copy and configure environment file
-cp .env.example .env.stage
-nano .env.stage  # Update with stage-specific values
-
-# 2. Setup systemd service
-sudo ./scripts/setup-service.sh stage
-
-# 3. Deploy and start
-sudo ./scripts/deploy-and-start.sh stage
-```
-
-### First Time Setup for Production
-
-```bash
-# 1. Copy and configure environment file
-cp .env.example .env.prod
-nano .env.prod  # Update with production-specific values
-
-# 2. Setup systemd service
-sudo ./scripts/setup-service.sh prod
-
-# 3. Deploy and start
-sudo ./scripts/deploy-and-start.sh prod
-```
-
-## Switching Between Environments
-
-Since both stage and production use the same folder, you can easily switch:
-
-```bash
-# Switch to stage
-sudo systemctl stop cardirehab-backend-prod
-sudo ./scripts/deploy-and-start.sh stage
-
-# Switch to production
-sudo systemctl stop cardirehab-backend-stage
-sudo ./scripts/deploy-and-start.sh prod
-```
-
-**Note:** Only one service should run at a time since they use the same WAR file location.
-
-## Updating Configuration
-
-### Update Environment Variables
-
-1. Edit the appropriate `.env.{env}` file:
-   ```bash
-   nano .env.stage  # or .env.prod
-   ```
-
-2. Restart the service:
-   ```bash
-   sudo systemctl restart cardirehab-backend-{stage|prod}
-   ```
-
-### Update Application Properties
-
-1. Edit the appropriate `application-{env}.properties` file:
-   ```bash
-   nano src/main/resources/application-stage.properties
-   ```
-
-2. Rebuild and restart:
-   ```bash
-   ./deploy.sh stage
-   sudo systemctl restart cardirehab-backend-stage
-   ```
 
 ## Troubleshooting
 
-### Service Won't Start
+### GitHub Actions workflow failed
+
+Check the Actions tab in your GitHub repo for logs. Common issues:
+- SSH key not configured correctly
+- Server not reachable (firewall/port)
+- Maven build failed (check build logs on server)
+
+### Service won't start after deploy
 
 ```bash
-# Check service status
-sudo systemctl status cardirehab-backend-{env}
-
 # Check logs
-sudo journalctl -u cardirehab-backend-{env} -n 50
+sudo journalctl -u cardirehab-backend-{preprod|prod} -n 50
 
-# Verify environment file exists
-ls -la .env.{env}
+# Verify WAR file
+ls -lh /var/www/html/backend-{preprod|prod}/target/crehab.war
 
-# Verify WAR file exists
-ls -lh target/crehab.war
+# Verify env file
+cat /var/www/html/backend-{preprod|prod}/.env.{preprod|prod}
 ```
 
-### Environment Variables Not Loading
+### Port conflict
 
-- Ensure `.env.{env}` file exists and has correct format
-- Check file permissions: `chmod 644 .env.{env}`
-- Verify systemd service has `EnvironmentFile` pointing to correct file
-
-### Port Already in Use
-
-- Check if another service is running: `sudo netstat -tlnp | grep {PORT}`
-- Stop conflicting service or change port in `.env.{env}`
-
-## Best Practices
-
-1. **Never commit `.env` files** - They contain sensitive information
-2. **Always use `.env.example`** as a template
-3. **Test locally first** - Use `./run.sh local` before deploying
-4. **Backup before changes** - Especially for production
-5. **One environment at a time** - Don't run stage and prod simultaneously
-
-## File Structure
-
-```
-backend/
-├── .env.example              # Template (committed)
-├── .env.local                # Local dev (not committed)
-├── .env.stage                # Stage env (not committed)
-├── .env.prod                 # Production env (not committed)
-├── deploy.sh                 # Build script
-├── run.sh                    # Run script
-├── scripts/
-│   ├── deploy-and-start.sh   # Full deployment
-│   ├── setup-service.sh      # Service setup
-│   ├── load-env.sh           # Env loader helper
-│   ├── cardirehab-backend-stage.service
-│   └── cardirehab-backend-prod.service
-└── src/main/resources/
-    ├── application.properties        # Base config
-    ├── application-local.properties  # Local overrides
-    ├── application-stage.properties  # Stage overrides
-    └── application-prod.properties   # Prod overrides
+Preprod uses port **9596**, production uses port **9595**. Both run simultaneously. If there's a conflict:
+```bash
+sudo ss -tlnp | grep -E '9595|9596'
 ```
