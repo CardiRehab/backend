@@ -171,6 +171,7 @@ cat /var/www/html/backend-{preprod|prod}/.env.{preprod|prod}
 ### Port conflict
 
 Preprod uses port **9596**, production uses port **9595**. Both run simultaneously. If there's a conflict:
+
 ```bash
 sudo ss -tlnp | grep -E '9595|9596'
 ```
