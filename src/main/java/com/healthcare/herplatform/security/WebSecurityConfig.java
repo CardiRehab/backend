@@ -116,6 +116,7 @@ public class WebSecurityConfig extends WebSecurityConfigurerAdapter {
 			.antMatchers("/assignedusers/**").hasAnyRole("PATIENT", "CRSPL", "LHCP", "ADMIN")
 			.antMatchers("/activitiesdiary/**").hasAnyRole("PATIENT", "CRSPL", "LHCP", "ADMIN")
 			.antMatchers("/assessmentforms/**").hasAnyRole("PATIENT", "CRSPL", "LHCP", "ADMIN")
+			.antMatchers("/api/user/**").hasAnyRole("PATIENT", "CRSPL", "LHCP", "ADMIN")
 			.antMatchers("/user/**").hasAnyRole("PATIENT", "CRSPL", "LHCP", "ADMIN") 
 			.antMatchers("/app/**").hasAnyRole("PATIENT", "CRSPL", "LHCP", "ADMIN")
 			

@@ -156,7 +156,8 @@ public class AuthController {
 		switch (userDetails.getAccountstatus()) {
 		case "Active":
 			resEntity = ResponseEntity.ok(new JwtResponse(jwt, userDetails.getId(), userDetails.getUsername(),
-					userDetails.getEmail(), userDetails.getAccountstatus(), userDetails.getValidityperiod(), roles));
+					userDetails.getEmail(), userDetails.getAccountstatus(), userDetails.getValidityperiod(), roles,
+					userDetails.getFirstName(), userDetails.getLastName()));
 			break;
 		case "Pending":
 			resEntity = ResponseEntity.badRequest().body(new MessageResponse(
