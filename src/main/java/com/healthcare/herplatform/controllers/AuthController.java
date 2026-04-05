@@ -16,6 +16,7 @@ import java.util.List;
 /* For sending email */
 import java.util.Properties;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 import javax.annotation.PostConstruct;
@@ -52,6 +53,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.healthcare.herplatform.entity.AssignedUsers;
 import com.healthcare.herplatform.entity.Contactus;
 import com.healthcare.herplatform.entity.ERole;
+import com.healthcare.herplatform.entity.PasswordResetToken;
 import com.healthcare.herplatform.entity.Role;
 import com.healthcare.herplatform.entity.User;
 import com.healthcare.herplatform.entity.UserJoinUserAssigned;
@@ -59,17 +61,22 @@ import com.healthcare.herplatform.jwt.JwtUtils;
 import com.healthcare.herplatform.models.ChangePasswordModel;
 import com.healthcare.herplatform.models.ResetPasswordModel;
 import com.healthcare.herplatform.payloads.ContactusRequest;
+import com.healthcare.herplatform.payloads.ForgotPasswordRequest;
 import com.healthcare.herplatform.payloads.JwtResponse;
 import com.healthcare.herplatform.payloads.LoginRequest;
 import com.healthcare.herplatform.payloads.MessageResponse;
+import com.healthcare.herplatform.payloads.ResetPasswordWithTokenRequest;
 import com.healthcare.herplatform.payloads.SignupRequest;
+import com.healthcare.herplatform.repository.ChangePasswordRepository;
 import com.healthcare.herplatform.repository.ContactusRepository;
+import com.healthcare.herplatform.repository.PasswordResetTokenRepository;
 import com.healthcare.herplatform.repository.RoleRepository;
 import com.healthcare.herplatform.repository.UserRepository;
 import com.healthcare.herplatform.services.AssignedUsersService;
 import com.healthcare.herplatform.services.UserDetailsImpl;
 import com.healthcare.herplatform.services.ChangePasswordService;
 import com.healthcare.herplatform.services.CrsplListService;
+import com.healthcare.herplatform.services.EmailService;
 import com.healthcare.herplatform.jwt.JwtTokenResponse;
 import com.healthcare.herplatform.config.SecureFilesConfig;
 
@@ -101,6 +108,15 @@ public class AuthController {
 
 	@Autowired
 	private AssignedUsersService assignedUsersService;
+
+	@Autowired
+	private ChangePasswordRepository changePasswordRepository;
+
+	@Autowired
+	private PasswordResetTokenRepository passwordResetTokenRepository;
+
+	@Autowired
+	private EmailService emailService;
 
 	@Autowired
 	private SecureFilesConfig secureFilesConfig; // <-- just inject here
@@ -156,7 +172,8 @@ public class AuthController {
 		switch (userDetails.getAccountstatus()) {
 		case "Active":
 			resEntity = ResponseEntity.ok(new JwtResponse(jwt, userDetails.getId(), userDetails.getUsername(),
-					userDetails.getEmail(), userDetails.getAccountstatus(), userDetails.getValidityperiod(), roles));
+					userDetails.getEmail(), userDetails.getAccountstatus(), userDetails.getValidityperiod(), roles,
+					userDetails.getFirstName(), userDetails.getLastName()));
 			break;
 		case "Pending":
 			resEntity = ResponseEntity.badRequest().body(new MessageResponse(
@@ -386,6 +403,59 @@ public class AuthController {
 
 		return ResponseEntity.ok(new MessageResponse(retMsg));
 
+	}
+
+	/* Step 1: User requests a password reset link via email */
+	@PostMapping("/forgot-password")
+	public ResponseEntity<?> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
+		// Always return the same message to prevent email enumeration
+		String genericMessage = "If an account with that email exists, a password reset link has been sent.";
+
+		changePasswordRepository.findByEmail(request.getEmail().trim()).ifPresent(user -> {
+			// Delete any existing token for this email
+			passwordResetTokenRepository.deleteByEmail(user.getEmail());
+
+			// Generate a secure random token
+			String token = UUID.randomUUID().toString();
+			PasswordResetToken resetToken = new PasswordResetToken(token, user.getEmail());
+			passwordResetTokenRepository.save(resetToken);
+
+			// Send email via Resend
+			emailService.sendPasswordResetEmail(user.getEmail(), token);
+		});
+
+		return ResponseEntity.ok(new MessageResponse(genericMessage));
+	}
+
+	/* Step 2: User submits new password using the token from the email link */
+	@PostMapping("/reset-password-token")
+	public ResponseEntity<?> resetPasswordWithToken(@Valid @RequestBody ResetPasswordWithTokenRequest request) {
+		if (!request.getNewPassword().trim().equals(request.getConfirmPassword().trim())) {
+			return ResponseEntity.badRequest().body(new MessageResponse("New password and confirm password do not match."));
+		}
+
+		PasswordResetToken resetToken = passwordResetTokenRepository
+				.findByToken(request.getToken().trim())
+				.orElse(null);
+
+		if (resetToken == null) {
+			return ResponseEntity.badRequest().body(new MessageResponse("Invalid or expired password reset link."));
+		}
+
+		if (resetToken.isExpired()) {
+			passwordResetTokenRepository.delete(resetToken);
+			return ResponseEntity.badRequest().body(new MessageResponse("Password reset link has expired. Please request a new one."));
+		}
+
+		changePasswordRepository.findByEmail(resetToken.getEmail()).ifPresent(user -> {
+			user.setPassword(encoder.encode(request.getNewPassword().trim()));
+			changePasswordRepository.save(user);
+		});
+
+		// Token is single-use — delete after successful reset
+		passwordResetTokenRepository.delete(resetToken);
+
+		return ResponseEntity.ok(new MessageResponse("Password has been reset successfully. You can now log in with your new password."));
 	}
 
 	@PostMapping("/contactus")

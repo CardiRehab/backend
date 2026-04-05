@@ -8,6 +8,8 @@ import com.healthcare.herplatform.entity.AssignedUsers;
 
 @Repository
 public interface AssignedUsersRepository extends JpaRepository<AssignedUsers, Integer>{
+
+	List<AssignedUsers> findByAssignedUserId(Long assignedUserId);
 	//@Query(value="Select un.assignedusers from assigned_chat_users un where un.username=?1") //JPQL or HQL
 	//@Query(value="Select un.id, un.userId, un.userName, un.assigneduserid, un.assignedusers from user_assignment un where un.userId=?1",nativeQuery=true) // Native query or SQL
 	

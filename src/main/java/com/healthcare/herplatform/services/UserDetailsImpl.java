@@ -21,9 +21,11 @@ public class UserDetailsImpl implements UserDetails {
 	@JsonIgnore
 	private String password;
 	private Collection<? extends GrantedAuthority> authorities;
-	
-	public UserDetailsImpl(Long id, String username, String email, String accountstatus, String validityperiod, String password,
-			Collection<? extends GrantedAuthority> authorities) {
+	private String firstName;
+	private String lastName;
+
+	public UserDetailsImpl(Long id, String username, String email, String accountstatus, String validityperiod,
+			String password, Collection<? extends GrantedAuthority> authorities, String firstName, String lastName) {
 		this.id = id;
 		this.username = username;
 		this.email = email;
@@ -31,20 +33,18 @@ public class UserDetailsImpl implements UserDetails {
 		this.validityperiod = validityperiod;
 		this.password = password;
 		this.authorities = authorities;
+		this.firstName = firstName;
+		this.lastName = lastName;
 	}
-	
+
 	public static UserDetailsImpl build(User user) {
 		List<GrantedAuthority> authorities = user.getRoles().stream()
 				.map(role -> new SimpleGrantedAuthority(role.getName().name()))
 				.collect(Collectors.toList());
-		return new UserDetailsImpl(
-				user.getId(), 
-				user.getUsername(), 
-				user.getEmail(),
-				user.getAccountstatus(),
-				user.getValidityperiod(),
-				user.getPassword(), 
-				authorities);
+		String fn = user.getFname() != null ? user.getFname() : "";
+		String ln = user.getLname() != null ? user.getLname() : "";
+		return new UserDetailsImpl(user.getId(), user.getUsername(), user.getEmail(), user.getAccountstatus(),
+				user.getValidityperiod(), user.getPassword(), authorities, fn, ln);
 	}
 	
 	@Override
@@ -63,6 +63,15 @@ public class UserDetailsImpl implements UserDetails {
 	public String getValidityperiod() {
 		return validityperiod;
 	}
+
+	public String getFirstName() {
+		return firstName;
+	}
+
+	public String getLastName() {
+		return lastName;
+	}
+
 	public static long getSerialversionuid() {
 		return serialVersionUID;
 	}
