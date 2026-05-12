@@ -44,3 +44,7 @@ build/
 ### Logs ###
 logs/
 *.log
+
+### Firebase Admin service account (push notifications) — never commit ###
+firebase-service-account.json
+src/main/resources/firebase-service-account.json
