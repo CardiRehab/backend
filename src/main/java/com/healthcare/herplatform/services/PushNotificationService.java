@@ -61,11 +61,11 @@ public class PushNotificationService {
 			return;
 		}
 		for (DeviceToken dt : tokens) {
-			sendToToken(dt.getToken(), title, body, data);
+			sendToToken(dt.getToken(), dt.getPlatform(), title, body, data);
 		}
 	}
 
-	private void sendToToken(String token, String title, String body, Map<String, String> data) {
+	private void sendToToken(String token, String platform, String title, String body, Map<String, String> data) {
 		try {
 			Message.Builder builder = Message.builder()
 					.setToken(token)
@@ -88,21 +88,25 @@ public class PushNotificationService {
 				}
 			}
 			String messageId = FirebaseMessaging.getInstance().send(builder.build());
-			log.info("FCM accepted (token={}…, messageId={}).", token.substring(0, Math.min(12, token.length())), messageId);
+			log.info("FCM accepted [{}] (token={}…, messageId={}).", platform, token.substring(0, Math.min(12, token.length())), messageId);
 		} catch (FirebaseMessagingException e) {
 			MessagingErrorCode code = e.getMessagingErrorCode();
 			if (code == MessagingErrorCode.UNREGISTERED || code == MessagingErrorCode.INVALID_ARGUMENT) {
 				try {
 					deviceTokenRepository.deleteByToken(token);
-					log.info("Removed stale FCM token ({}).", code);
+					log.info("Removed stale FCM token [{}] ({}).", platform, code);
 				} catch (Exception ignored) {
 					// best effort
 				}
 			} else {
-				log.warn("FCM send failed ({}): {}", code, e.getMessage());
+				// Log enough detail to diagnose APNs-config vs OAuth vs payload errors:
+				// errorCode is the Admin SDK's mapping (often null for non-JSON HTTP errors),
+				// HTTP status comes from getCause() / the wrapped HttpResponseException.
+				String cause = e.getCause() != null ? e.getCause().toString() : "(no cause)";
+				log.warn("FCM send failed [{}] (code={}): {} | cause={}", platform, code, e.getMessage(), cause);
 			}
 		} catch (Exception e) {
-			log.warn("Unexpected error sending push notification: {}", e.getMessage());
+			log.warn("Unexpected error sending push notification [{}]: {}", platform, e.getMessage(), e);
 		}
 	}
 }
