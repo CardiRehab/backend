@@ -77,6 +77,7 @@ public class PushNotificationService {
 							.setPriority(AndroidConfig.Priority.HIGH)
 							.build())
 					.setApnsConfig(ApnsConfig.builder()
+							.putHeader("apns-priority", "10")
 							.setAps(Aps.builder().setSound("default").build())
 							.build());
 			if (data != null) {
@@ -86,7 +87,8 @@ public class PushNotificationService {
 					}
 				}
 			}
-			FirebaseMessaging.getInstance().send(builder.build());
+			String messageId = FirebaseMessaging.getInstance().send(builder.build());
+			log.info("FCM accepted (token={}…, messageId={}).", token.substring(0, Math.min(12, token.length())), messageId);
 		} catch (FirebaseMessagingException e) {
 			MessagingErrorCode code = e.getMessagingErrorCode();
 			if (code == MessagingErrorCode.UNREGISTERED || code == MessagingErrorCode.INVALID_ARGUMENT) {
