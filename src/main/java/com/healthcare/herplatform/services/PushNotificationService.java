@@ -2,6 +2,7 @@ package com.healthcare.herplatform.services;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,8 +18,12 @@ import com.google.firebase.messaging.FirebaseMessagingException;
 import com.google.firebase.messaging.Message;
 import com.google.firebase.messaging.MessagingErrorCode;
 import com.google.firebase.messaging.Notification;
+import com.healthcare.herplatform.entity.AssignedUsers;
 import com.healthcare.herplatform.entity.DeviceToken;
+import com.healthcare.herplatform.entity.User;
+import com.healthcare.herplatform.repository.AssignedUsersRepository;
 import com.healthcare.herplatform.repository.DeviceTokenRepository;
+import com.healthcare.herplatform.repository.UserRepository;
 
 /**
  * Sends push notifications to a user's registered devices via FCM. Every method
@@ -33,6 +38,12 @@ public class PushNotificationService {
 
 	@Autowired
 	private DeviceTokenRepository deviceTokenRepository;
+
+	@Autowired
+	private UserRepository userRepository;
+
+	@Autowired
+	private AssignedUsersRepository assignedUsersRepository;
 
 	private boolean firebaseReady() {
 		return !FirebaseApp.getApps().isEmpty();
@@ -62,6 +73,54 @@ public class PushNotificationService {
 		}
 		for (DeviceToken dt : tokens) {
 			sendToToken(dt.getToken(), dt.getPlatform(), title, body, data);
+		}
+	}
+
+	/**
+	 * Sends a notification to the user identified by numeric id. Resolves the
+	 * username via {@link UserRepository} and delegates to {@link #sendToUser}.
+	 */
+	public void sendToUserId(int userId, String title, String body, Map<String, String> data) {
+		if (!firebaseReady()) {
+			return;
+		}
+		try {
+			Optional<User> user = userRepository.findById((long) userId);
+			if (!user.isPresent()) {
+				return;
+			}
+			String username = user.get().getUsername();
+			if (username == null || username.isEmpty()) {
+				return;
+			}
+			sendToUser(username, title, body, data);
+		} catch (Exception e) {
+			log.warn("sendToUserId failed (userId={}): {}", userId, e.getMessage());
+		}
+	}
+
+	/**
+	 * Sends a notification to every CRSPL/LHCP assigned to the given patient
+	 * (look-up keyed on the patient's user id, matching the {@code assigneduserid}
+	 * column in {@code user_assignment}). Used for form-submission alerts so the
+	 * patient's clinician learns a new assessment is available.
+	 */
+	public void sendToAssignedDoctorsOf(int patientUserId, String title, String body, Map<String, String> data) {
+		if (!firebaseReady()) {
+			return;
+		}
+		List<AssignedUsers> assignments;
+		try {
+			assignments = assignedUsersRepository.getCrsplUsersById(patientUserId);
+		} catch (Exception e) {
+			log.warn("Could not load assigned doctors for patient userId={}: {}", patientUserId, e.getMessage());
+			return;
+		}
+		if (assignments == null || assignments.isEmpty()) {
+			return;
+		}
+		for (AssignedUsers a : assignments) {
+			sendToUserId(a.getUserId(), title, body, data);
 		}
 	}
 

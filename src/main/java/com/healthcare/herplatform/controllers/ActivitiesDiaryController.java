@@ -1,6 +1,10 @@
 package com.healthcare.herplatform.controllers;
 
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import javax.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -24,6 +28,7 @@ import com.healthcare.herplatform.entity.Activities;
 import com.healthcare.herplatform.entity.OthersActivities;
 import com.healthcare.herplatform.entity.ActivitiesType;
 import com.healthcare.herplatform.entity.AssignedActivities;
+import com.healthcare.herplatform.services.PushNotificationService;
 import com.healthcare.herplatform.services.WeekNameService;
 import com.healthcare.herplatform.services.WeekDayService;
 import com.healthcare.herplatform.services.ActivitiesService;
@@ -41,7 +46,10 @@ public class ActivitiesDiaryController {
 	private WeekNameService weekNameService;
 	private WeekDayService weekDayService;
 	private ActivitiesService activitiesService;
-	
+
+	@Autowired
+	private PushNotificationService pushNotificationService;
+
 	public ActivitiesDiaryController(WeekNameService weekNameService, WeekDayService weekDayService,
 			ActivitiesService activitiesService) {
 		super();
@@ -140,13 +148,31 @@ public class ActivitiesDiaryController {
 	@PreAuthorize("hasAnyRole('CRSPL', 'LHCP')")
 	@PostMapping("/insertassignedactivities")
     public List<AssignedActivities> insertAssignedActivities(@Valid @RequestBody List <AssignedActivities> assignedActivities) throws Exception{
-		
+
 		System.out.println("\n\n==================================");
 		//assignedActivities.forEach(System.out::println);
 		assignedActivities.forEach((s) -> System.out.println(s));
 		System.out.println("\n\n==================================");
-		     
+
 		List<AssignedActivities> insertActivitiesList =  activitiesService.saveAssignedActivities(assignedActivities);
+
+		// One push per distinct patient — a plan typically has multiple activity
+		// rows for the same patient, and a single notification reads better than
+		// N back-to-back alerts.
+		Set<Integer> notifiedPatients = new HashSet<>();
+		for (AssignedActivities a : insertActivitiesList) {
+			int patientUserId = a.getUserid();
+			if (!notifiedPatients.add(patientUserId)) {
+				continue;
+			}
+			Map<String, String> data = new HashMap<>();
+			data.put("type", "plan");
+			data.put("patientUserId", Integer.toString(patientUserId));
+			pushNotificationService.sendToUserId(patientUserId,
+					"New activity plan",
+					"Your doctor has updated your activity plan.",
+					data);
+		}
         return insertActivitiesList;
     }
 	

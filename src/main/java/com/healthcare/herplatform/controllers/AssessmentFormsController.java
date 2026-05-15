@@ -1,6 +1,8 @@
 package com.healthcare.herplatform.controllers;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import javax.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -25,6 +27,7 @@ import com.healthcare.herplatform.models.HadsInsertModel;
 import com.healthcare.herplatform.models.AlcoholTobaccoInsertModel;
 import com.healthcare.herplatform.models.SmwtInsertModel;
 import com.healthcare.herplatform.services.FormAssessmentService;
+import com.healthcare.herplatform.services.PushNotificationService;
 import com.healthcare.herplatform.services.UserDetailsImpl;
 
 //@CrossOrigin(origins = {"https://mbzjku.csb.app", "https://www.cardirehab.com:8444", "https://cardirehab.com:8444", "https://preprod.cardirehab.com:8444", "https://www.cardirehab.com", "https://cardirehab.com", "https://preprod.cardirehab.com", "http://cardirehab.com:9595", "http://www.cardirehab.com:9595", "http://preprod.cardirehab.com:9595", "http://195.35.20.166:9595", "http://localhost:3000", "http://localhost:3002"}, allowCredentials = "true", maxAge = 3600)
@@ -33,10 +36,28 @@ import com.healthcare.herplatform.services.UserDetailsImpl;
 public class AssessmentFormsController {
 	
 	private FormAssessmentService formAssessmentService;
+	private PushNotificationService pushNotificationService;
 
-	public AssessmentFormsController(FormAssessmentService formAssessmentService) {
+	public AssessmentFormsController(FormAssessmentService formAssessmentService,
+			PushNotificationService pushNotificationService) {
 		super();
 		this.formAssessmentService = formAssessmentService;
+		this.pushNotificationService = pushNotificationService;
+	}
+
+	/**
+	 * Pushes a "form submitted" notification to every CRSPL/LHCP assigned to the
+	 * patient. Best-effort: any failure is swallowed inside the service so it
+	 * cannot affect the form save. {@code formKey} ends up in the push payload's
+	 * {@code formType} field so the mobile app can deep-link once routing for
+	 * non-chat pushes is added.
+	 */
+	private void notifyDoctorsOfFormSubmission(int patientUserId, String formKey, String title, String body) {
+		Map<String, String> data = new HashMap<>();
+		data.put("type", "form");
+		data.put("formType", formKey);
+		data.put("patientUserId", Integer.toString(patientUserId));
+		pushNotificationService.sendToAssignedDoctorsOf(patientUserId, title, body, data);
 	}
 
 	/**
@@ -85,6 +106,9 @@ public class AssessmentFormsController {
 		// Save data passed by user by using the service
 		Phq9 saveData = formAssessmentService.savePhq9Data(phq9Data);
 
+		notifyDoctorsOfFormSubmission(phq9Model.getUserid(), "phq9",
+				"PHQ-9 form submitted", "Patient submitted a PHQ-9 (score " + totScore + ")");
+
 		return new ResponseEntity<Phq9>(saveData, HttpStatus.OK);
 	}
 	/*
@@ -130,6 +154,9 @@ public class AssessmentFormsController {
 
 		// Save data passed by user by using the service
 		Gad7 saveData = formAssessmentService.saveGad7Data(gad7Data);
+
+		notifyDoctorsOfFormSubmission(gad7Model.getUserid(), "gad7",
+				"GAD-7 form submitted", "Patient submitted a GAD-7 (score " + totScore + ")");
 
 		return new ResponseEntity<Gad7>(saveData, HttpStatus.OK);
 	}
@@ -183,6 +210,10 @@ public class AssessmentFormsController {
 
 		// Save data passed by user by using the service
 		Hads saveData = formAssessmentService.saveHadsData(hadsData);
+
+		notifyDoctorsOfFormSubmission(hadsModel.getUserid(), "hads",
+				"HADS form submitted",
+				"Patient submitted HADS (anxiety " + totAnxScore + ", depression " + totDepScore + ")");
 
 		return new ResponseEntity<Hads>(saveData, HttpStatus.OK);
 	}
@@ -239,6 +270,10 @@ public class AssessmentFormsController {
 		// Save data passed by user by using the service
 		AlcoholTobacco saveData = formAssessmentService.saveAlcoholTobaccoData(alcoholTobaccoData);
 
+		notifyDoctorsOfFormSubmission(alcoholTobaccoModel.getUserid(), "alcoholtobacco",
+				"Alcohol/Tobacco form submitted",
+				"Patient submitted alcohol/tobacco screening (total " + grandTotalScore + ")");
+
 		return new ResponseEntity<AlcoholTobacco>(saveData, HttpStatus.OK);
 	}
 	/*
@@ -287,6 +322,10 @@ public class AssessmentFormsController {
 
 		// Save data passed by user by using the service
 		Smwt saveData = formAssessmentService.saveSmwtData(smwtData);
+
+		notifyDoctorsOfFormSubmission(smwtModel.getUserid(), "smwt",
+				"6-Minute Walk Test submitted",
+				"Patient submitted a 6MWT result (" + smwtModel.getTotdistance() + " m)");
 
 		return new ResponseEntity<Smwt>(saveData, HttpStatus.OK);
 	}
