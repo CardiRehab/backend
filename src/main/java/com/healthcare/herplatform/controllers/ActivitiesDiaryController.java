@@ -1,6 +1,10 @@
 package com.healthcare.herplatform.controllers;
 
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import javax.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -24,6 +28,7 @@ import com.healthcare.herplatform.entity.Activities;
 import com.healthcare.herplatform.entity.OthersActivities;
 import com.healthcare.herplatform.entity.ActivitiesType;
 import com.healthcare.herplatform.entity.AssignedActivities;
+import com.healthcare.herplatform.services.PushNotificationService;
 import com.healthcare.herplatform.services.WeekNameService;
 import com.healthcare.herplatform.services.WeekDayService;
 import com.healthcare.herplatform.services.ActivitiesService;
@@ -41,7 +46,10 @@ public class ActivitiesDiaryController {
 	private WeekNameService weekNameService;
 	private WeekDayService weekDayService;
 	private ActivitiesService activitiesService;
-	
+
+	@Autowired
+	private PushNotificationService pushNotificationService;
+
 	public ActivitiesDiaryController(WeekNameService weekNameService, WeekDayService weekDayService,
 			ActivitiesService activitiesService) {
 		super();
@@ -100,7 +108,6 @@ public class ActivitiesDiaryController {
 	@PreAuthorize("hasRole('PATIENT')")
 	@PostMapping("/insertactivity")
     public ResponseEntity<?> insertActivity(@Valid @RequestBody ActivityInsertModel aiModel) {
-        //get the data from user or postman
 		Activities activityData = new Activities(
 				aiModel.getUserid(),
 				aiModel.getDtTime(),
@@ -111,28 +118,43 @@ public class ActivitiesDiaryController {
 				aiModel.getRpeBorg(),
 				aiModel.getSymptoms()
 				);
-		
-		//save data passed by user
 		Activities saveActivity = aiREPO.save(activityData);
-		
+
+		Map<String, String> data = new HashMap<>();
+		data.put("type", "activity");
+		data.put("activityType", "physical");
+		data.put("patientUserId", Integer.toString(aiModel.getUserid()));
+		pushNotificationService.sendToAssignedDoctorsOf(
+				aiModel.getUserid(),
+				"Activity logged",
+				"Patient logged " + aiModel.getActivityName() + " (RPE " + aiModel.getRpeBorg() + ")",
+				data);
+
         return new ResponseEntity<Activities>(saveActivity, HttpStatus.OK);
     }
-	
+
 	/* To insert the others activity in database */
 	@PreAuthorize("hasRole('PATIENT')")
 	@PostMapping("/insertotactivity")
     public ResponseEntity<?> insertOtActivity(@Valid @RequestBody OthersActivityInsertModel otAiModel) {
-        //get the data from user or postman
 		OthersActivities othersActivityData = new OthersActivities(
 				otAiModel.getUserid(),
 				otAiModel.getDtTime(),
 				otAiModel.getActivityName(),
 				otAiModel.getValQuantity()
 				);
-		
-		//save data passed by user
 		OthersActivities saveOtActivity = otAiREPO.save(othersActivityData);
-		
+
+		Map<String, String> data = new HashMap<>();
+		data.put("type", "activity");
+		data.put("activityType", "other");
+		data.put("patientUserId", Integer.toString(otAiModel.getUserid()));
+		pushNotificationService.sendToAssignedDoctorsOf(
+				otAiModel.getUserid(),
+				"Activity logged",
+				"Patient logged " + otAiModel.getActivityName() + " (" + otAiModel.getValQuantity() + ")",
+				data);
+
         return new ResponseEntity<OthersActivities>(saveOtActivity, HttpStatus.OK);
     }
 	
@@ -140,13 +162,31 @@ public class ActivitiesDiaryController {
 	@PreAuthorize("hasAnyRole('CRSPL', 'LHCP')")
 	@PostMapping("/insertassignedactivities")
     public List<AssignedActivities> insertAssignedActivities(@Valid @RequestBody List <AssignedActivities> assignedActivities) throws Exception{
-		
+
 		System.out.println("\n\n==================================");
 		//assignedActivities.forEach(System.out::println);
 		assignedActivities.forEach((s) -> System.out.println(s));
 		System.out.println("\n\n==================================");
-		     
+
 		List<AssignedActivities> insertActivitiesList =  activitiesService.saveAssignedActivities(assignedActivities);
+
+		// One push per distinct patient — a plan typically has multiple activity
+		// rows for the same patient, and a single notification reads better than
+		// N back-to-back alerts.
+		Set<Integer> notifiedPatients = new HashSet<>();
+		for (AssignedActivities a : insertActivitiesList) {
+			int patientUserId = a.getUserid();
+			if (!notifiedPatients.add(patientUserId)) {
+				continue;
+			}
+			Map<String, String> data = new HashMap<>();
+			data.put("type", "plan");
+			data.put("patientUserId", Integer.toString(patientUserId));
+			pushNotificationService.sendToUserId(patientUserId,
+					"New activity plan",
+					"Your doctor has updated your activity plan.",
+					data);
+		}
         return insertActivitiesList;
     }
 	
