@@ -108,7 +108,6 @@ public class ActivitiesDiaryController {
 	@PreAuthorize("hasRole('PATIENT')")
 	@PostMapping("/insertactivity")
     public ResponseEntity<?> insertActivity(@Valid @RequestBody ActivityInsertModel aiModel) {
-        //get the data from user or postman
 		Activities activityData = new Activities(
 				aiModel.getUserid(),
 				aiModel.getDtTime(),
@@ -119,28 +118,43 @@ public class ActivitiesDiaryController {
 				aiModel.getRpeBorg(),
 				aiModel.getSymptoms()
 				);
-		
-		//save data passed by user
 		Activities saveActivity = aiREPO.save(activityData);
-		
+
+		Map<String, String> data = new HashMap<>();
+		data.put("type", "activity");
+		data.put("activityType", "physical");
+		data.put("patientUserId", Integer.toString(aiModel.getUserid()));
+		pushNotificationService.sendToAssignedDoctorsOf(
+				aiModel.getUserid(),
+				"Activity logged",
+				"Patient logged " + aiModel.getActivityName() + " (RPE " + aiModel.getRpeBorg() + ")",
+				data);
+
         return new ResponseEntity<Activities>(saveActivity, HttpStatus.OK);
     }
-	
+
 	/* To insert the others activity in database */
 	@PreAuthorize("hasRole('PATIENT')")
 	@PostMapping("/insertotactivity")
     public ResponseEntity<?> insertOtActivity(@Valid @RequestBody OthersActivityInsertModel otAiModel) {
-        //get the data from user or postman
 		OthersActivities othersActivityData = new OthersActivities(
 				otAiModel.getUserid(),
 				otAiModel.getDtTime(),
 				otAiModel.getActivityName(),
 				otAiModel.getValQuantity()
 				);
-		
-		//save data passed by user
 		OthersActivities saveOtActivity = otAiREPO.save(othersActivityData);
-		
+
+		Map<String, String> data = new HashMap<>();
+		data.put("type", "activity");
+		data.put("activityType", "other");
+		data.put("patientUserId", Integer.toString(otAiModel.getUserid()));
+		pushNotificationService.sendToAssignedDoctorsOf(
+				otAiModel.getUserid(),
+				"Activity logged",
+				"Patient logged " + otAiModel.getActivityName() + " (" + otAiModel.getValQuantity() + ")",
+				data);
+
         return new ResponseEntity<OthersActivities>(saveOtActivity, HttpStatus.OK);
     }
 	
