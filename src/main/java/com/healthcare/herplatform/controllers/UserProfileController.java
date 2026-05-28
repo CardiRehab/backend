@@ -1,5 +1,6 @@
 package com.healthcare.herplatform.controllers;
 
+import java.util.Date;
 import java.util.List;
 
 import javax.validation.Valid;
@@ -9,6 +10,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -70,6 +72,28 @@ public class UserProfileController {
 		syncPatientAssignmentDisplay(user);
 
 		return ResponseEntity.ok(UserProfileResponse.fromEntity(user));
+	}
+
+	/**
+	 * Initiates account deletion. The account is disabled immediately and a 30-day
+	 * clock starts; a scheduled sweep permanently purges it once the window passes.
+	 * The user may reactivate within the window via /api/auth/reactivate-account.
+	 */
+	@PostMapping("/delete-account")
+	public ResponseEntity<?> deleteAccount(Authentication authentication) {
+		UserDetailsImpl principal = (UserDetailsImpl) authentication.getPrincipal();
+		User user = userRepository.findByUsername(principal.getUsername()).orElse(null);
+		if (user == null) {
+			return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new MessageResponse("User not found"));
+		}
+
+		user.setAccountstatus("Deleting");
+		user.setDeletionRequestedAt(new Date());
+		userRepository.save(user);
+
+		return ResponseEntity.ok(new MessageResponse(
+				"Your account has been scheduled for deletion and will be permanently removed in 30 days. "
+						+ "Sign in again before then to reactivate it."));
 	}
 
 	/**

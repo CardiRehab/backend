@@ -93,6 +93,11 @@ public class User{
 	@Size(max = 30)
 	private String regid;
 
+	// Timestamp the user requested account deletion. Null unless a deletion is
+	// pending; used to enforce the 30-day reinstatement window and hard-delete sweep.
+	@Column(name = "deletion_requested_at")
+	private Date deletionRequestedAt;
+
 	@ManyToMany(fetch = FetchType.LAZY)
 	@JoinTable(name = "user_roles", joinColumns = @JoinColumn(name = "user_id"), inverseJoinColumns = @JoinColumn(name = "role_id"))
 	private Set<Role> roles = new HashSet<>();
@@ -285,6 +290,14 @@ public class User{
 
 	public void setRegid(String regid) {
 		this.regid = regid;
+	}
+
+	public Date getDeletionRequestedAt() {
+		return deletionRequestedAt;
+	}
+
+	public void setDeletionRequestedAt(Date deletionRequestedAt) {
+		this.deletionRequestedAt = deletionRequestedAt;
 	}
 
 	public Set<Role> getRoles() {

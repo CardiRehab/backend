@@ -2,6 +2,7 @@ package com.healthcare.herplatform.repository;
 
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 import com.healthcare.herplatform.entity.WeekDay;
@@ -10,6 +11,10 @@ import com.healthcare.herplatform.entity.WeekDay;
 public interface WeekDayRepository extends JpaRepository<WeekDay, Integer> {
 	@Query(value="Select un.id, un.week_name_id, un.week_day from week_day un where un.week_name_id=?1",nativeQuery=true) // Native query or SQL
 	public List<WeekDay> getWeekDaysByWeekNameId(int weekNameId);
+
+	@Modifying
+	@Query(value="DELETE FROM week_day WHERE week_name_id IN (SELECT id FROM (SELECT id FROM week_name WHERE userid=?1) AS wn)", nativeQuery=true)
+	void deleteByUserId(int userId);
 }
 
 

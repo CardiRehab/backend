@@ -2,6 +2,7 @@ package com.healthcare.herplatform.repository;
 
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
@@ -17,4 +18,8 @@ public interface AssignedActivitiesRepository extends JpaRepository<AssignedActi
 	
 	@Query(value="Select un.id, un.userid, un.acttypeid, un.curr_date_time, un.activities_type, un.act_freq, un.peakhr, un.peak_borgrpe, un.min_duration, un.act_status, un.comments, un.act_work_status, un.work_status_changeddt from assigned_activities un where un.userid=?1 and un.act_work_status=?2",nativeQuery=true) // Native query or SQL
 	public AssignedActivities updAssignedActivityByIdAndWorkStatus(int id, String wStatus);
+
+	@Modifying
+	@Query(value="DELETE FROM assigned_activities WHERE userid=?1", nativeQuery=true)
+	void deleteByUserId(int userId);
 }
