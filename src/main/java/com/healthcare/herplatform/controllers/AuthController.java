@@ -10,7 +10,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 //import java.text.SimpleDateFormat;
-//import java.util.Date;
+import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
 /* For sending email */
@@ -61,6 +61,7 @@ import com.healthcare.herplatform.jwt.JwtUtils;
 import com.healthcare.herplatform.models.ChangePasswordModel;
 import com.healthcare.herplatform.models.ResetPasswordModel;
 import com.healthcare.herplatform.payloads.ContactusRequest;
+import com.healthcare.herplatform.payloads.DeletionPendingResponse;
 import com.healthcare.herplatform.payloads.ForgotPasswordRequest;
 import com.healthcare.herplatform.payloads.JwtResponse;
 import com.healthcare.herplatform.payloads.LoginRequest;
@@ -187,6 +188,17 @@ public class AuthController {
 			resEntity = ResponseEntity.badRequest().body(new MessageResponse(
 					"Your account is disabled. Please, contact the administrator using our Contact Us Form."));
 			break;
+		case "Deleting": {
+			// Account is pending deletion. Do not issue a token — the client uses the
+			// "Deleting" status to route the user to the reactivation screen.
+			User pendingUser = userRepository.findByUsername(userDetails.getUsername()).orElse(null);
+			Date requestedAt = pendingUser != null ? pendingUser.getDeletionRequestedAt() : null;
+			long daysRemaining = computeDaysRemaining(requestedAt);
+			resEntity = ResponseEntity.ok(new DeletionPendingResponse(userDetails.getUsername(), requestedAt,
+					daysRemaining,
+					"This account is scheduled for permanent deletion. Reactivate it to keep your data."));
+			break;
+		}
 		case "Locked":
 			resEntity = ResponseEntity.badRequest().body(new MessageResponse(
 					"Your account is temporarily locked. Please, contact the administrator using our Contact Us Form."));
@@ -213,6 +225,71 @@ public class AuthController {
 		} catch (Exception e) {
 			return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Token refresh failed");
 		}
+	}
+
+	/** Minutes a deletion-pending account can still be reactivated (shared with the purge sweep). */
+	@Value("${app.account.deletion-window-minutes:43200}")
+	private long deletionWindowMinutes;
+
+	private long deletionDeadlineMillis(Date requestedAt) {
+		return requestedAt.getTime() + deletionWindowMinutes * 60L * 1000;
+	}
+
+	private long computeDaysRemaining(Date requestedAt) {
+		if (requestedAt == null) {
+			return 0;
+		}
+		long remainingMs = deletionDeadlineMillis(requestedAt) - System.currentTimeMillis();
+		if (remainingMs <= 0) {
+			return 0;
+		}
+		return (long) Math.ceil(remainingMs / (24.0 * 60 * 60 * 1000));
+	}
+
+	private boolean isDeletionWindowExpired(Date requestedAt) {
+		return requestedAt == null || System.currentTimeMillis() >= deletionDeadlineMillis(requestedAt);
+	}
+
+	/**
+	 * Reactivates an account that is pending deletion, within the 30-day window.
+	 * Requires valid credentials (the user is signed out while pending). On success
+	 * the account is restored to Active and a fresh JWT is returned, logging the user in.
+	 */
+	@PostMapping("/reactivate-account")
+	public ResponseEntity<?> reactivateAccount(@Valid @RequestBody LoginRequest loginRequest) {
+		Authentication authentication;
+		try {
+			authentication = authenticationManager.authenticate(
+					new UsernamePasswordAuthenticationToken(loginRequest.getUsername(), loginRequest.getPassword()));
+		} catch (Exception e) {
+			return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+					.body(new MessageResponse("Invalid username or password"));
+		}
+
+		User user = userRepository.findByUsername(loginRequest.getUsername()).orElse(null);
+		if (user == null) {
+			return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new MessageResponse("User not found"));
+		}
+		if (!"Deleting".equals(user.getAccountstatus())) {
+			return ResponseEntity.badRequest().body(new MessageResponse("This account is not pending deletion."));
+		}
+		if (isDeletionWindowExpired(user.getDeletionRequestedAt())) {
+			return ResponseEntity.badRequest().body(new MessageResponse(
+					"The reactivation window has expired and the account has been removed. Please register again."));
+		}
+
+		user.setAccountstatus("Active");
+		user.setDeletionRequestedAt(null);
+		userRepository.save(user);
+
+		SecurityContextHolder.getContext().setAuthentication(authentication);
+		String jwt = jwtUtils.generateJwtToken(authentication);
+		UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
+		List<String> roles = userDetails.getAuthorities().stream().map(item -> item.getAuthority())
+				.collect(Collectors.toList());
+		return ResponseEntity.ok(new JwtResponse(jwt, userDetails.getId(), userDetails.getUsername(),
+				userDetails.getEmail(), "Active", userDetails.getValidityperiod(), roles, userDetails.getFirstName(),
+				userDetails.getLastName()));
 	}
 
 	/* To sign up or user registration inside the database */

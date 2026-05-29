@@ -2,6 +2,7 @@ package com.healthcare.herplatform.repository;
 
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 import com.healthcare.herplatform.entity.AssignedUsers;
@@ -10,6 +11,16 @@ import com.healthcare.herplatform.entity.AssignedUsers;
 public interface AssignedUsersRepository extends JpaRepository<AssignedUsers, Integer>{
 
 	List<AssignedUsers> findByAssignedUserId(Long assignedUserId);
+
+	@Modifying
+	@Query(value="DELETE FROM user_assignment WHERE assigneduserid=?1", nativeQuery=true)
+	void deleteByAssignedUserId(Long assignedUserId);
+
+	// Removes assignment rows where the deleted user is the CRSPL/clinician, so
+	// their patients aren't left pointing at a ghost specialist. No-op for patients.
+	@Modifying
+	@Query(value="DELETE FROM user_assignment WHERE userid=?1", nativeQuery=true)
+	void deleteByCrsplUserId(int crsplUserId);
 	//@Query(value="Select un.assignedusers from assigned_chat_users un where un.username=?1") //JPQL or HQL
 	//@Query(value="Select un.id, un.userId, un.userName, un.assigneduserid, un.assignedusers from user_assignment un where un.userId=?1",nativeQuery=true) // Native query or SQL
 	
