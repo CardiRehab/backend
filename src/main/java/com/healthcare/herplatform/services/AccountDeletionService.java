@@ -24,8 +24,8 @@ public class AccountDeletionService {
 
 	private static final String PENDING_STATUS = "Deleting";
 
-	@Value("${app.account.deletion-window-days:30}")
-	private long deletionWindowDays;
+	@Value("${app.account.deletion-window-minutes:43200}")
+	private long deletionWindowMinutes;
 
 	@Autowired
 	private UserRepository userRepository;
@@ -33,10 +33,10 @@ public class AccountDeletionService {
 	@Autowired
 	private AccountPurger accountPurger;
 
-	/** Runs daily at 03:00 server time. */
-	@Scheduled(cron = "0 0 3 * * *")
+	/** Runs on the configured cron (default daily at 03:00 server time). */
+	@Scheduled(cron = "${app.account.deletion-sweep-cron:0 0 3 * * *}")
 	public void purgeExpiredAccounts() {
-		Date cutoff = new Date(System.currentTimeMillis() - deletionWindowDays * 24L * 60 * 60 * 1000);
+		Date cutoff = new Date(System.currentTimeMillis() - deletionWindowMinutes * 60L * 1000);
 		List<User> expired = userRepository.findByAccountstatusAndDeletionRequestedAtBefore(PENDING_STATUS, cutoff);
 		if (expired == null || expired.isEmpty()) {
 			return;

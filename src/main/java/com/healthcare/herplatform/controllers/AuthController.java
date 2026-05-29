@@ -227,12 +227,12 @@ public class AuthController {
 		}
 	}
 
-	/** Days a deletion-pending account can still be reactivated (shared with the purge sweep). */
-	@Value("${app.account.deletion-window-days:30}")
-	private long deletionWindowDays;
+	/** Minutes a deletion-pending account can still be reactivated (shared with the purge sweep). */
+	@Value("${app.account.deletion-window-minutes:43200}")
+	private long deletionWindowMinutes;
 
 	private long deletionDeadlineMillis(Date requestedAt) {
-		return requestedAt.getTime() + deletionWindowDays * 24L * 60 * 60 * 1000;
+		return requestedAt.getTime() + deletionWindowMinutes * 60L * 1000;
 	}
 
 	private long computeDaysRemaining(Date requestedAt) {
