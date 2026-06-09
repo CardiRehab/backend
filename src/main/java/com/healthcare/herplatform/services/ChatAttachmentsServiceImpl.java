@@ -11,9 +11,12 @@ import com.healthcare.herplatform.repository.ChatAttachmentsRepository;
 public class ChatAttachmentsServiceImpl implements ChatAttachmentsService{
 
     private ChatAttachmentsRepository chatAttachmentsRepository;
+    private VoiceTranscoder voiceTranscoder;
 
-    public ChatAttachmentsServiceImpl(ChatAttachmentsRepository chatAttachmentsRepository) {
+    public ChatAttachmentsServiceImpl(ChatAttachmentsRepository chatAttachmentsRepository,
+                                      VoiceTranscoder voiceTranscoder) {
         this.chatAttachmentsRepository = chatAttachmentsRepository;
+        this.voiceTranscoder = voiceTranscoder;
     }
 
     @Override
@@ -25,10 +28,17 @@ public class ChatAttachmentsServiceImpl implements ChatAttachmentsService{
                 + fileName);
             }
 
+            // Web browsers record WebM/Opus voice clips that iOS can't play and
+            // Android plays unreliably. Normalize those to AAC/.m4a here so they
+            // play everywhere; clips already in an iOS-safe format (mobile m4a,
+            // Safari) pass through untouched.
+            VoiceTranscoder.Result normalized = voiceTranscoder.transcodeIfNeeded(
+                    fileName, file.getContentType(), file.getBytes());
+
             ChatAttachments chatAttachments
-                    = new ChatAttachments(fileName,
-                    file.getContentType(),
-                    file.getBytes());
+                    = new ChatAttachments(normalized.fileName,
+                    normalized.contentType,
+                    normalized.data);
             return chatAttachmentsRepository.save(chatAttachments);
 
        } catch (Exception e) {

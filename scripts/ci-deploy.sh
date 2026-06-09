@@ -29,6 +29,17 @@ echo "========================================="
 
 cd "$DEPLOY_DIR"
 
+echo "[deps] Ensuring ffmpeg is installed (voice-message transcoding)..."
+if ! command -v ffmpeg >/dev/null 2>&1; then
+    echo "ffmpeg not found; installing..."
+    # Non-fatal: if install fails the app still runs, web voice clips are just
+    # stored untranscoded (so they won't play on iOS/Android until ffmpeg exists).
+    sudo apt-get update -y && sudo apt-get install -y ffmpeg \
+        || echo "WARNING: ffmpeg install failed; web voice clips will not be transcoded."
+else
+    echo "ffmpeg present: $(ffmpeg -version 2>/dev/null | head -1)"
+fi
+
 echo "[1/5] Pulling latest code..."
 git fetch origin
 git reset --hard "origin/${BRANCH}"

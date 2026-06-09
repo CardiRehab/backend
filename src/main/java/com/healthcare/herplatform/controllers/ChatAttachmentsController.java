@@ -50,10 +50,15 @@ public class ChatAttachmentsController {
                 .path(chatAttachments.getId())
                 .toUriString();
 
+        // Report the stored (possibly transcoded) metadata, not the upload's —
+        // a WebM clip may have been normalized to AAC/.m4a during save.
+        long storedSize = chatAttachments.getData() != null
+                ? chatAttachments.getData().length
+                : file.getSize();
         return new ResponseData(chatAttachments.getFileName(),
                 downloadURl,
-                file.getContentType(),
-                file.getSize());
+                chatAttachments.getFileType(),
+                storedSize);
     }
 
     @PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP')")
