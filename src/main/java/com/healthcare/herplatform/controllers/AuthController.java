@@ -13,22 +13,11 @@ import java.nio.file.Paths;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
-/* For sending email */
-import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
 import javax.annotation.PostConstruct;
-import javax.mail.Address;
-import javax.mail.Authenticator;
-import javax.mail.Message;
-import javax.mail.MessagingException;
-import javax.mail.PasswordAuthentication;
-import javax.mail.Session;
-import javax.mail.Transport;
-import javax.mail.internet.InternetAddress;
-import javax.mail.internet.MimeMessage;
 import javax.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -568,95 +557,17 @@ public class AuthController {
 		contactusRepository.save(contactus);
 
 		/* Sending an email */
-		String status = sendEmail(contactusRequest.getName(), contactusRequest.getEmail(), contactusRequest.getPhone(),
+		boolean emailSent = emailService.sendContactUsEmail(
+				contactusRequest.getName(), contactusRequest.getEmail(), contactusRequest.getPhone(),
 				contactusRequest.getSubject(), contactusRequest.getMessage(), tokenId);
 
-		if (status == "OK") {
+		if (emailSent) {
 			return ResponseEntity.ok(new MessageResponse(
 					"Request submitted successfully! Token id is: " + tokenId + ". We will shortly contact you."));
 		} else {
 			return ResponseEntity.ok(new MessageResponse(
 					"Mail is not Received but message is recorded in database successfully! Token id is: " + tokenId
 							+ ". We will shortly contact you."));
-		}
-	}
-
-	public String sendEmail(String name, String email, String phone, String subject, String messageData,
-			String tokenId) {
-		// Recipient's email ID needs to be mentioned.
-		// String to = "anupamchauhan888@gmail.com";
-
-		// Sender's email ID needs to be mentioned
-//		String from = "anupamchauhan888@gmail.com";
-//		String password = "xjhzecaxnapptryo";
-		String from = "sprt.chs@gmail.com";
-		String password = "vpnnoqyrnlalkrce";
-
-		// Assuming you are sending email from localhost
-		String host = "smtp.gmail.com";
-
-		// Get system properties
-		Properties properties = System.getProperties();
-
-		// Setup mail server
-		properties.put("mail.smtp.host", host);
-		properties.put("mail.smtp.auth", "true");
-		properties.put("mail.debug", "true");
-		properties.put("mail.transport.protocol", "smtp");
-		properties.put("mail.smtp.ssl.protocols", "TLSv1.2");
-		properties.put("mail.smtp.starttls.enable", true);
-		properties.put("mail.smtp.user", from);
-		properties.put("mail.smtp.password", password);
-		properties.put("mail.smtp.port", 587);
-		properties.put("mail.smtp.ssl.trust", host);
-
-		// Get the default Session object.
-		Session session = Session.getDefaultInstance(properties, new Authenticator() {
-			protected PasswordAuthentication getPasswordAuthentication() {
-				return new PasswordAuthentication(from, password);
-			}
-		});
-		session.setDebug(true);
-
-		try {
-			// Create a default MimeMessage object.
-			MimeMessage message = new MimeMessage(session);
-
-			// Set From: header field of the header.
-			try {
-				message.setFrom(new InternetAddress(from));
-			} catch (Exception e) {
-				e.printStackTrace();
-			}
-
-			// Set To: header field of the header.
-			// Address[] toEmailAddr = {(Address)new
-			// InternetAddress("ayushi8472@gmail.com"), (Address)new
-			// InternetAddress("awdhesh.kumar645@gmail.com"), (Address)new
-			// InternetAddress("sniteshin@gmail.com")};
-			Address[] toEmailAddr = { (Address) new InternetAddress("jeet.rana@gmail.com"),
-					(Address) new InternetAddress("anupamchauhan888@gmail.com"),
-					(Address) new InternetAddress("sudhirrathore@hotmail.com"),
-					(Address) new InternetAddress("sprt.chs@gmail.com"),
-					(Address) new InternetAddress("deepak_rathore@hotmail.com") };
-			message.addRecipients(Message.RecipientType.TO, toEmailAddr);
-
-			// Set Subject: header field
-			message.setSubject(subject);
-
-			String composeEmailData = "\n Name: " + name + "\n Email Id: " + email + "\n Phone: " + phone
-					+ "\n\n Message: " + messageData + "\n Token Id:  " + tokenId;
-
-			// Now set the actual composed message
-			message.setText(composeEmailData);
-
-			// Send message
-			Transport.send(message);
-			System.out.println("Sent message successfully....");
-			return "OK";
-		} catch (MessagingException mex) {
-			mex.printStackTrace();
-			return "NO";
 		}
 	}
 
