@@ -57,6 +57,16 @@ public class ChatController {
 
         simpMessagingTemplate.convertAndSendToUser(message.getReceiverName(),"/private",message); // /user/David/private
 
+        /* Echo the persisted message (now carrying its generated id) back to the
+           sender so the sender's optimistically-shown copy can adopt the id and
+           become deletable without needing a history reload. Clients match it by
+           clientRef and reconcile in place — they never append their own echo. */
+        try {
+            simpMessagingTemplate.convertAndSendToUser(message.getSenderName(),"/private",message);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
         /* Push notification to the recipient's devices (best-effort; never fails the message) */
         try {
             sendChatPushNotification(message);
