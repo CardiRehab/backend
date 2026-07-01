@@ -13,8 +13,9 @@ import com.healthcare.herplatform.entity.ResourceListing;
 import com.healthcare.herplatform.services.ResourceListingService;
 
 /**
- * Read endpoints are open to all authenticated app roles; write endpoints are limited to
- * CRSPL/ADMIN (the client's admin team), matching the Video content pattern.
+ * Read endpoints are open to all authenticated app roles (Patients, CR Specialists, LHCPs).
+ * Write/management endpoints are limited to ADMIN only — the client's "Board of Directors"
+ * curator login. CR Specialists and Patients are platform users and cannot manage listings.
  */
 @RestController
 @RequestMapping("/api/resources")
@@ -52,30 +53,30 @@ public class ResourceListingController {
 		return listing != null ? ResponseEntity.ok(listing) : ResponseEntity.notFound().build();
 	}
 
-	// ---- Admin (CRSPL / ADMIN) ----
+	// ---- Admin (Board of Directors, ADMIN only) ----
 
-	@PreAuthorize("hasAnyRole('CRSPL', 'ADMIN')")
+	@PreAuthorize("hasRole('ADMIN')")
 	@GetMapping("/admin")
 	public ResponseEntity<List<ResourceListing>> listForAdmin(
 			@RequestParam(value = "category", required = false) ResourceCategory category) {
 		return ResponseEntity.ok(service.listForAdmin(category));
 	}
 
-	@PreAuthorize("hasAnyRole('CRSPL', 'ADMIN')")
+	@PreAuthorize("hasRole('ADMIN')")
 	@PostMapping("")
 	public ResponseEntity<ResourceListing> create(@RequestBody ResourceListing listing, Principal principal) {
 		String createdBy = principal != null ? principal.getName() : null;
 		return new ResponseEntity<>(service.create(listing, createdBy), HttpStatus.CREATED);
 	}
 
-	@PreAuthorize("hasAnyRole('CRSPL', 'ADMIN')")
+	@PreAuthorize("hasRole('ADMIN')")
 	@PutMapping("/{id}")
 	public ResponseEntity<ResourceListing> update(@PathVariable Long id, @RequestBody ResourceListing listing) {
 		ResourceListing updated = service.update(id, listing);
 		return updated != null ? ResponseEntity.ok(updated) : ResponseEntity.notFound().build();
 	}
 
-	@PreAuthorize("hasAnyRole('CRSPL', 'ADMIN')")
+	@PreAuthorize("hasRole('ADMIN')")
 	@PatchMapping("/{id}/active")
 	public ResponseEntity<ResourceListing> setActive(@PathVariable Long id,
 			@RequestParam("value") boolean value) {
@@ -83,7 +84,7 @@ public class ResourceListingController {
 		return updated != null ? ResponseEntity.ok(updated) : ResponseEntity.notFound().build();
 	}
 
-	@PreAuthorize("hasAnyRole('CRSPL', 'ADMIN')")
+	@PreAuthorize("hasRole('ADMIN')")
 	@DeleteMapping("/{id}")
 	public ResponseEntity<Void> delete(@PathVariable Long id) {
 		service.delete(id);
