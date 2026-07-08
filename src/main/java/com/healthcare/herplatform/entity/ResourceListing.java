@@ -5,7 +5,8 @@ import javax.persistence.*;
 
 /**
  * A single external "trusted resource" shown to patients in the Resources directory
- * (monitoring devices, cardiologists, hospitals, psychologists, dieticians).
+ * (hospitals, specialists, devices, government schemes, diet, exercise, mental
+ * health, education and emergency resources — see {@link ResourceCategory}).
  *
  * These are admin-authored content records only. The listed parties are NOT users of the
  * platform — they have no account, login or API access. All patient interaction is one-way
@@ -62,6 +63,12 @@ public class ResourceListing {
 	@Enumerated(EnumType.STRING)
 	@Column(name = "listing_type", length = 16)
 	private ResourceListingType listingType;
+
+	// Who is behind the resource (government / private / non-profit / international);
+	// shown as a badge so patients can judge the source at a glance.
+	@Enumerated(EnumType.STRING)
+	@Column(name = "kind", length = 16)
+	private ResourceKind kind;
 
 	@Column(name = "verified")
 	private boolean verified;
@@ -241,6 +248,14 @@ public class ResourceListing {
 
 	public void setListingType(ResourceListingType listingType) {
 		this.listingType = listingType;
+	}
+
+	public ResourceKind getKind() {
+		return kind;
+	}
+
+	public void setKind(ResourceKind kind) {
+		this.kind = kind;
 	}
 
 	public boolean isVerified() {

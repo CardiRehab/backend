@@ -73,6 +73,7 @@ public class ResourceListingServiceImpl implements ResourceListingService {
 		e.setEmail(incoming.getEmail());
 		e.setWebsiteUrl(incoming.getWebsiteUrl());
 		e.setListingType(incoming.getListingType());
+		e.setKind(incoming.getKind());
 		e.setVerified(incoming.isVerified());
 		e.setActive(incoming.isActive());
 		e.setDisplayOrder(incoming.getDisplayOrder());
