@@ -57,6 +57,16 @@ public class ChatController {
 
         simpMessagingTemplate.convertAndSendToUser(message.getReceiverName(),"/private",message); // /user/David/private
 
+        /* Echo the persisted message (now carrying its generated id) back to the
+           sender so the sender's optimistically-shown copy can adopt the id and
+           become deletable without needing a history reload. Clients match it by
+           clientRef and reconcile in place — they never append their own echo. */
+        try {
+            simpMessagingTemplate.convertAndSendToUser(message.getSenderName(),"/private",message);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
         /* Push notification to the recipient's devices (best-effort; never fails the message) */
         try {
             sendChatPushNotification(message);
@@ -79,7 +89,11 @@ public class ChatController {
         String body;
         if (status == Status.MSG_ATTACH) {
             String fileName = message.getFileName();
-            body = (fileName != null && !fileName.trim().isEmpty()) ? ("📎 " + fileName) : "Sent an attachment";
+            if (isAudioFileName(fileName)) {
+                body = "🎤 Voice message";
+            } else {
+                body = (fileName != null && !fileName.trim().isEmpty()) ? ("📎 " + fileName) : "Sent an attachment";
+            }
         } else {
             String text = message.getMessage();
             body = (text != null && !text.trim().isEmpty()) ? text : "New message";
@@ -92,5 +106,22 @@ public class ChatController {
 
     public void saveMessage(@RequestBody Message message) {
     	messageRepository.save(message);
+    }
+
+    /** Voice clips are uploaded as attachments named "voice-<ts>.<ext>" or with an audio extension. */
+    private boolean isAudioFileName(String fileName) {
+        if (fileName == null) {
+            return false;
+        }
+        String lower = fileName.trim().toLowerCase();
+        if (lower.isEmpty()) {
+            return false;
+        }
+        if (lower.startsWith("voice-")) {
+            return true;
+        }
+        return lower.endsWith(".webm") || lower.endsWith(".m4a") || lower.endsWith(".mp4")
+                || lower.endsWith(".mp3") || lower.endsWith(".ogg") || lower.endsWith(".oga")
+                || lower.endsWith(".opus") || lower.endsWith(".wav") || lower.endsWith(".aac");
     }
 }

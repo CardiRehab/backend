@@ -44,9 +44,15 @@ public class Message {
 	
 	@Column(nullable = true)
 	private String fileId;
-	
+
 	@Column(nullable = true)
 	private String fileName;
+
+	// Client-generated correlation id, echoed back to the sender so its
+	// optimistic copy can adopt the persisted row's id (making just-sent
+	// messages deletable without a reload). Not persisted.
+	@javax.persistence.Transient
+	private String clientRef;
 
 	public Message() {
 		super();
@@ -127,6 +133,14 @@ public class Message {
 
 	public void setFileName(String fileName) {
 		this.fileName = fileName;
+	}
+
+	public String getClientRef() {
+		return clientRef;
+	}
+
+	public void setClientRef(String clientRef) {
+		this.clientRef = clientRef;
 	}
 
 	@Override

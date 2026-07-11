@@ -25,6 +25,49 @@ public class EmailService {
 
     private static final String RESEND_API_URL = "https://api.resend.com/emails";
 
+    public boolean sendContactUsEmail(String name, String email, String phone, String subject, String messageData, String tokenId) {
+        String htmlBody = "<div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 32px;'>"
+                + "<h2 style='color: #001062;'>New Contact Us Submission</h2>"
+                + "<table style='width:100%; border-collapse: collapse;'>"
+                + "<tr><td style='padding: 8px; font-weight:bold; width:120px;'>Name</td><td style='padding: 8px;'>" + name + "</td></tr>"
+                + "<tr style='background:#f5f5f5;'><td style='padding: 8px; font-weight:bold;'>Email</td><td style='padding: 8px;'>" + email + "</td></tr>"
+                + "<tr><td style='padding: 8px; font-weight:bold;'>Phone</td><td style='padding: 8px;'>" + phone + "</td></tr>"
+                + "<tr style='background:#f5f5f5;'><td style='padding: 8px; font-weight:bold;'>Subject</td><td style='padding: 8px;'>" + subject + "</td></tr>"
+                + "<tr><td style='padding: 8px; font-weight:bold;'>Message</td><td style='padding: 8px;'>" + messageData + "</td></tr>"
+                + "<tr style='background:#f5f5f5;'><td style='padding: 8px; font-weight:bold;'>Token ID</td><td style='padding: 8px;'>" + tokenId + "</td></tr>"
+                + "</table>"
+                + "<hr style='border: none; border-top: 1px solid #eee; margin-top: 32px;'/>"
+                + "<p style='color: #999; font-size: 12px;'>CardiRehab &mdash; Contact Us Form</p>"
+                + "</div>";
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("Authorization", "Bearer " + resendApiKey);
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("from", "CardiRehab Support <" + fromEmail + ">");
+        body.put("to", java.util.Arrays.asList(
+                "jeet.rana@gmail.com",
+                "anupamchauhan888@gmail.com",
+                "sudhirrathore@hotmail.com",
+                "support@cardirehab.com",
+                "deepak_rathore@hotmail.com"
+        ));
+        body.put("reply_to", email);
+        body.put("subject", "Contact Us: " + subject);
+        body.put("html", htmlBody);
+
+        HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
+
+        try {
+            restTemplate.postForEntity(RESEND_API_URL, request, String.class);
+            return true;
+        } catch (Exception e) {
+            System.err.println("Failed to send contact us email via Resend: " + e.getMessage());
+            return false;
+        }
+    }
+
     public void sendPasswordResetEmail(String toEmail, String token) {
         String resetLink = frontendUrl + "/ForgotPassword?token=" + token;
         String htmlBody = buildPasswordResetEmailHtml(resetLink);
