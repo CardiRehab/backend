@@ -8,9 +8,12 @@ import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -18,9 +21,11 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.healthcare.herplatform.entity.AssignedUsers;
 import com.healthcare.herplatform.entity.SecondOpinionAttachment;
 import com.healthcare.herplatform.entity.SecondOpinionRequest;
 import com.healthcare.herplatform.entity.SecondOpinionStatus;
+import com.healthcare.herplatform.repository.AssignedUsersRepository;
 import com.healthcare.herplatform.repository.SecondOpinionAttachmentRepository;
 import com.healthcare.herplatform.repository.SecondOpinionRequestRepository;
 
@@ -43,6 +48,7 @@ public class SecondOpinionServiceImpl implements SecondOpinionService {
 
 	private final SecondOpinionRequestRepository requestRepo;
 	private final SecondOpinionAttachmentRepository attachmentRepo;
+	private final AssignedUsersRepository assignedUsersRepo;
 
 	@Value("${app.soha.upload-dir:uploads/second-opinion}")
 	private String uploadDir;
@@ -51,10 +57,12 @@ public class SecondOpinionServiceImpl implements SecondOpinionService {
 	private long maxFileMb;
 
 	public SecondOpinionServiceImpl(SecondOpinionRequestRepository requestRepo,
-			SecondOpinionAttachmentRepository attachmentRepo) {
+			SecondOpinionAttachmentRepository attachmentRepo,
+			AssignedUsersRepository assignedUsersRepo) {
 		super();
 		this.requestRepo = requestRepo;
 		this.attachmentRepo = attachmentRepo;
+		this.assignedUsersRepo = assignedUsersRepo;
 	}
 
 	private Path uploadRoot() {
@@ -155,12 +163,36 @@ public class SecondOpinionServiceImpl implements SecondOpinionService {
 	}
 
 	@Override
-	public SecondOpinionRequest getForUser(Long id, String username, boolean reviewer) {
-		SecondOpinionRequest request = requestRepo.findById(id).orElse(null);
-		if (request == null) {
-			return null;
+	public List<SecondOpinionRequest> listForDoctor(long doctorUserId) {
+		List<String> patientUsernames = assignedUsersRepo.findByUserId((int) doctorUserId).stream()
+				.map(AssignedUsers::getAssignedUsers)
+				.filter(Objects::nonNull)
+				.distinct()
+				.collect(Collectors.toList());
+		if (patientUsernames.isEmpty()) {
+			return Collections.emptyList();
 		}
-		if (!reviewer && !request.getPatientUsername().equals(username)) {
+		return requestRepo.findByPatientUsernameInOrderByCreatedAtDesc(patientUsernames);
+	}
+
+	// The assignment check must only run for callers holding a clinician role
+	// (doctorUserId stays null otherwise): user ids are shared across roles, so a
+	// patient whose id collides with some clinician's must not inherit their scope.
+	private boolean isAssigned(Long doctorUserId, String patientUsername) {
+		return doctorUserId != null
+				&& assignedUsersRepo.existsByUserIdAndAssignedUsers(doctorUserId.intValue(), patientUsername);
+	}
+
+	private boolean canRead(SecondOpinionRequest request, String username, boolean admin, Long doctorUserId) {
+		return admin
+				|| request.getPatientUsername().equals(username)
+				|| isAssigned(doctorUserId, request.getPatientUsername());
+	}
+
+	@Override
+	public SecondOpinionRequest getForUser(Long id, String username, boolean admin, Long doctorUserId) {
+		SecondOpinionRequest request = requestRepo.findById(id).orElse(null);
+		if (request == null || !canRead(request, username, admin, doctorUserId)) {
 			return null;
 		}
 		return request;
@@ -168,12 +200,10 @@ public class SecondOpinionServiceImpl implements SecondOpinionService {
 
 	@Override
 	@Transactional(readOnly = true)
-	public SecondOpinionAttachment getAttachmentForUser(Long attachmentId, String username, boolean reviewer) {
+	public SecondOpinionAttachment getAttachmentForUser(Long attachmentId, String username, boolean admin,
+			Long doctorUserId) {
 		SecondOpinionAttachment attachment = attachmentRepo.findById(attachmentId).orElse(null);
-		if (attachment == null) {
-			return null;
-		}
-		if (!reviewer && !attachment.getRequest().getPatientUsername().equals(username)) {
+		if (attachment == null || !canRead(attachment.getRequest(), username, admin, doctorUserId)) {
 			return null;
 		}
 		// Touch lazy fields needed after the session closes.
@@ -192,9 +222,13 @@ public class SecondOpinionServiceImpl implements SecondOpinionService {
 	}
 
 	@Override
-	public SecondOpinionRequest review(Long id, SecondOpinionStatus status, String responseNote, String reviewer) {
+	public SecondOpinionRequest review(Long id, SecondOpinionStatus status, String responseNote, String reviewer,
+			boolean admin, Long doctorUserId) {
 		SecondOpinionRequest request = requestRepo.findById(id).orElse(null);
 		if (request == null) {
+			return null;
+		}
+		if (!admin && !isAssigned(doctorUserId, request.getPatientUsername())) {
 			return null;
 		}
 		if (status != null) {

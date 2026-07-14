@@ -19,17 +19,30 @@ public interface SecondOpinionService {
 
 	List<SecondOpinionRequest> listMine(String patientUsername);
 
+	/** Every request — Board ADMIN only. */
 	List<SecondOpinionRequest> listAll();
 
-	/** Returns the request only if {@code username} owns it or {@code reviewer} is true; null when absent/forbidden. */
-	SecondOpinionRequest getForUser(Long id, String username, boolean reviewer);
+	/** Requests from the patients assigned to this CRSPL/LHCP (user_assignment.userid). */
+	List<SecondOpinionRequest> listForDoctor(long doctorUserId);
+
+	/**
+	 * Returns the request only if {@code username} owns it, {@code admin} is true,
+	 * or {@code doctorUserId} (nullable) is a clinician the patient is assigned to;
+	 * null when absent/forbidden.
+	 */
+	SecondOpinionRequest getForUser(Long id, String username, boolean admin, Long doctorUserId);
 
 	/** Attachment metadata + its file on disk, access-checked like {@link #getForUser}. */
-	SecondOpinionAttachment getAttachmentForUser(Long attachmentId, String username, boolean reviewer);
+	SecondOpinionAttachment getAttachmentForUser(Long attachmentId, String username, boolean admin, Long doctorUserId);
 
 	File fileFor(SecondOpinionAttachment attachment);
 
-	SecondOpinionRequest review(Long id, SecondOpinionStatus status, String responseNote, String reviewer);
+	/**
+	 * Records status/reply. Admins may review any request; a clinician only those of
+	 * their assigned patients — otherwise null, indistinguishable from a missing id.
+	 */
+	SecondOpinionRequest review(Long id, SecondOpinionStatus status, String responseNote, String reviewer,
+			boolean admin, Long doctorUserId);
 
 	void delete(Long id);
 }

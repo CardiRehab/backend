@@ -20,11 +20,13 @@ import com.healthcare.herplatform.entity.SecondOpinionAttachment;
 import com.healthcare.herplatform.entity.SecondOpinionRequest;
 import com.healthcare.herplatform.entity.SecondOpinionStatus;
 import com.healthcare.herplatform.services.SecondOpinionService;
+import com.healthcare.herplatform.services.UserDetailsImpl;
 
 /**
  * Second Opinion on Heart Ailments (SOHA): patients submit a request with
- * documents/videos attached; reviewers (CRSPL / LHCP / Board ADMIN) read them,
- * download the files and record the cardiologist's opinion.
+ * documents/videos attached; reviewers read them, download the files and record
+ * the cardiologist's opinion. Board ADMIN sees every request; a CRSPL/LHCP only
+ * the requests of patients assigned to them (user_assignment).
  *
  * Flow is two-step on purpose: create the request first (JSON), then upload
  * attachments ONE file per call — so a large echo video never collides with the
@@ -41,11 +43,23 @@ public class SecondOpinionController {
 		this.service = service;
 	}
 
-	private static boolean isReviewer(Authentication auth) {
-		return auth != null && auth.getAuthorities().stream().anyMatch(a ->
-				a.getAuthority().equals("ROLE_CRSPL")
-				|| a.getAuthority().equals("ROLE_LHCP")
-				|| a.getAuthority().equals("ROLE_ADMIN"));
+	private static boolean isAdmin(Authentication auth) {
+		return auth != null && auth.getAuthorities().stream()
+				.anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+	}
+
+	/** The caller's user id when they hold a clinician role (CRSPL/LHCP), else null. */
+	private static Long doctorId(Authentication auth) {
+		if (auth == null) {
+			return null;
+		}
+		boolean clinician = auth.getAuthorities().stream().anyMatch(a ->
+				a.getAuthority().equals("ROLE_CRSPL") || a.getAuthority().equals("ROLE_LHCP"));
+		if (!clinician) {
+			return null;
+		}
+		Object principal = auth.getPrincipal();
+		return principal instanceof UserDetailsImpl ? ((UserDetailsImpl) principal).getId() : null;
 	}
 
 	private static Map<String, String> error(String message) {
@@ -97,12 +111,18 @@ public class SecondOpinionController {
 		return ResponseEntity.ok(service.listMine(auth.getName()));
 	}
 
-	// ---- Reviewer side (cardiologist via CRSPL / LHCP / Board ADMIN) ----
+	// ---- Reviewer side: Board ADMIN sees all, CRSPL/LHCP their own patients ----
 
 	@PreAuthorize("hasAnyRole('CRSPL', 'LHCP', 'ADMIN')")
 	@GetMapping("")
-	public ResponseEntity<List<SecondOpinionRequest>> listAll() {
-		return ResponseEntity.ok(service.listAll());
+	public ResponseEntity<List<SecondOpinionRequest>> listAll(Authentication auth) {
+		if (isAdmin(auth)) {
+			return ResponseEntity.ok(service.listAll());
+		}
+		Long doctorUserId = doctorId(auth);
+		return ResponseEntity.ok(doctorUserId != null
+				? service.listForDoctor(doctorUserId)
+				: Collections.<SecondOpinionRequest>emptyList());
 	}
 
 	@PreAuthorize("hasAnyRole('CRSPL', 'LHCP', 'ADMIN')")
@@ -111,7 +131,8 @@ public class SecondOpinionController {
 			@RequestBody SecondOpinionRequest body, Authentication auth) {
 		SecondOpinionStatus status = body != null ? body.getStatus() : null;
 		String note = body != null ? body.getResponseNote() : null;
-		SecondOpinionRequest updated = service.review(id, status, note, auth.getName());
+		SecondOpinionRequest updated = service.review(id, status, note, auth.getName(),
+				isAdmin(auth), doctorId(auth));
 		return updated != null ? ResponseEntity.ok(updated) : ResponseEntity.notFound().build();
 	}
 
@@ -122,12 +143,12 @@ public class SecondOpinionController {
 		return ResponseEntity.noContent().build();
 	}
 
-	// ---- Shared (owner or reviewer) ----
+	// ---- Shared (owner, admin, or the patient's assigned clinician) ----
 
 	@PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP', 'ADMIN')")
 	@GetMapping("/{id}")
 	public ResponseEntity<SecondOpinionRequest> getById(@PathVariable Long id, Authentication auth) {
-		SecondOpinionRequest request = service.getForUser(id, auth.getName(), isReviewer(auth));
+		SecondOpinionRequest request = service.getForUser(id, auth.getName(), isAdmin(auth), doctorId(auth));
 		return request != null ? ResponseEntity.ok(request) : ResponseEntity.notFound().build();
 	}
 
@@ -135,7 +156,7 @@ public class SecondOpinionController {
 	@GetMapping("/attachments/{attachmentId}/download")
 	public ResponseEntity<Resource> download(@PathVariable Long attachmentId, Authentication auth) {
 		SecondOpinionAttachment attachment =
-				service.getAttachmentForUser(attachmentId, auth.getName(), isReviewer(auth));
+				service.getAttachmentForUser(attachmentId, auth.getName(), isAdmin(auth), doctorId(auth));
 		if (attachment == null) {
 			return ResponseEntity.notFound().build();
 		}

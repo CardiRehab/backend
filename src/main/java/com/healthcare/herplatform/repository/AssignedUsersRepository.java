@@ -12,6 +12,11 @@ public interface AssignedUsersRepository extends JpaRepository<AssignedUsers, In
 
 	List<AssignedUsers> findByAssignedUserId(Long assignedUserId);
 
+	/* Assignment rows of one CRSPL/clinician; assignedUsers holds the patient's username. */
+	List<AssignedUsers> findByUserId(int userId);
+
+	boolean existsByUserIdAndAssignedUsers(int userId, String assignedUsers);
+
 	@Modifying
 	@Query(value="DELETE FROM user_assignment WHERE assigneduserid=?1", nativeQuery=true)
 	void deleteByAssignedUserId(Long assignedUserId);
