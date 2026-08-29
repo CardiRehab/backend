@@ -35,6 +35,8 @@ public class WebSecurityConfig extends WebSecurityConfigurerAdapter {
 	UserDetailsServiceImpl userDetailsService;
 	@Autowired
 	private AuthEntryPointJwt unauthorizedHandler;
+	@Autowired
+	private EmptyBodyAccessDeniedHandler accessDeniedHandler;
 	
 	@Bean
 	public AuthTokenFilter authenticationJwtTokenFilter() {
@@ -96,7 +98,10 @@ public class WebSecurityConfig extends WebSecurityConfigurerAdapter {
 		http
 		    .cors()
 		    .and().csrf().disable()
-			.exceptionHandling().authenticationEntryPoint(unauthorizedHandler).and()
+			.exceptionHandling().authenticationEntryPoint(unauthorizedHandler)
+			// Authorisation failures render as a bare 403 (V-01): a body that distinguishes
+			// "not yours" from "does not exist" is an enumeration oracle.
+			.accessDeniedHandler(accessDeniedHandler).and()
 			.sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS).and()
 			.authorizeRequests()
 			

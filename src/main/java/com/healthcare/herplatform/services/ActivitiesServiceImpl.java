@@ -71,12 +71,11 @@ public class ActivitiesServiceImpl implements ActivitiesService {
 	
 	@Override
 	public AssignedActivities updateAssignedActivityById(AssignedActivities assignedActivityRequest, int id) throws Exception {
-		AssignedActivities existingActivity = null;
-		try {
-	       existingActivity = assignedActRepository.findById(id).get(); //Get from database by id
-		}catch(Exception e) {
-		   existingActivity = assignedActivityRequest; //Get from database by id
-		}
+		// Previously a missing id fell through to saving the request body, which silently
+		// created an assigned_activities row for whatever userid the caller put in it. The
+		// controller already refuses unresolvable ids; this keeps the service closed too.
+		AssignedActivities existingActivity = assignedActRepository.findById(id)
+				.orElseThrow(() -> new IllegalArgumentException("No assigned activity with id " + id));
 		//Update with new values
 		existingActivity.setActWorkStatus(assignedActivityRequest.getActWorkStatus()); // work status
 		existingActivity.setWorkStatusChangedDT(assignedActivityRequest.getWorkStatusChangedDT()); // work status changed Date Time
