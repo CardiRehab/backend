@@ -5,6 +5,7 @@ import com.healthcare.herplatform.repository.MessageRepository;
 import com.healthcare.herplatform.entity.ChatAttachments;
 import com.healthcare.herplatform.entity.Message;
 import com.healthcare.herplatform.entity.Status;
+import com.healthcare.herplatform.security.PatientAccessGuard;
 import com.healthcare.herplatform.services.ChatAttachmentsService;
 import java.util.Date;
 import java.util.HashMap;
@@ -31,6 +32,9 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 @RestController
 @RequestMapping("/checkfileattachalgo")
 public class ChatAttachmentsController {
+	private static final org.slf4j.Logger log =
+			org.slf4j.LoggerFactory.getLogger(ChatAttachmentsController.class);
+
 	@Autowired
 	MessageRepository messageRepository;
 
@@ -42,10 +46,19 @@ public class ChatAttachmentsController {
 	@Value("${chat.message.delete-window-hours:24}")
 	private long deleteWindowHours;
 
+    @Autowired
+    private PatientAccessGuard patientAccessGuard;
+
     private ChatAttachmentsService chatAttachmentsService;
 
     public ChatAttachmentsController(ChatAttachmentsService chatAttachmentsService) {
         this.chatAttachmentsService = chatAttachmentsService;
+    }
+
+    /** True when the caller is the sender or the receiver of the given message. */
+    private static boolean isParticipant(Message message, String username) {
+        return username != null
+                && (username.equals(message.getSenderName()) || username.equals(message.getReceiverName()));
     }
 
 //    @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -80,7 +93,17 @@ public class ChatAttachmentsController {
 
     @PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP')")
     @GetMapping("/downloadca/{fileId}")
-    public ResponseEntity<Resource> downloadFile(@PathVariable String fileId) throws Exception {
+    public ResponseEntity<Resource> downloadFile(@PathVariable String fileId, Authentication authentication)
+            throws Exception {
+        // Indirect IDOR: chat_attachments has no owner column, so ownership is the conversation
+        // the file was sent in. Every client download path reads fileId off an existing message,
+        // so an attachment with no message is not downloadable and is refused like any other.
+        List<Message> carrying = messageRepository.findByFileId(fileId);
+        String caller = authentication != null ? authentication.getName() : null;
+        boolean participant = carrying.stream().anyMatch(m -> isParticipant(m, caller));
+        if (!participant) {
+            patientAccessGuard.denyAccess(authentication, fileId, "caller is not a party to the message carrying this file");
+        }
         ChatAttachments chatAttachments = null;
         chatAttachments = chatAttachmentsService.getAttachment(fileId);
         return  ResponseEntity.ok()
@@ -93,13 +116,31 @@ public class ChatAttachmentsController {
        
     @PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP')")
     @DeleteMapping("/deleteca/{fileId}")
-    public String deleteFile(@PathVariable String fileId) throws Exception {
+    public String deleteFile(@PathVariable String fileId, Authentication authentication) throws Exception {
+        // Once a message carries the file, only a party to that message may remove it.
+        //
+        // Before that, there is nothing that records who uploaded it: chat_attachments has no
+        // owner column, and the client's "remove the attachment I just picked" action runs in
+        // exactly that window (ChatRoom.js). Refusing unreferenced files would break attaching
+        // and cancelling for every user, so they are allowed through and the event is logged.
+        // The residual exposure is deleting a not-yet-sent file whose UUID the caller already
+        // knows; no health data is disclosed. Closing it properly needs an uploaded_by column,
+        // which is raised with the other attachment-ownership work rather than done here.
+        List<Message> carrying = messageRepository.findByFileId(fileId);
+        String caller = authentication != null ? authentication.getName() : null;
+        if (!carrying.isEmpty() && carrying.stream().noneMatch(m -> isParticipant(m, caller))) {
+            patientAccessGuard.denyAccess(authentication, fileId, "caller is not a party to the message carrying this file");
+        }
+        if (carrying.isEmpty()) {
+            log.warn("AUTHZ_UNREFERENCED_DELETE principal={} subject={} endpoint=DELETE /checkfileattachalgo/deleteca",
+                    caller, fileId);
+        }
         String chatAttachments = null;
         chatAttachments = chatAttachmentsService.deleteAttachment(fileId);
         return chatAttachments; 
     }
     
-    @PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP')")
+    @PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP') and @patientAccessGuard.canActAsUsername(authentication, #userName)")
     @GetMapping("/getuserchathistory/{userName}")
    	public List<Message> getUserChatHistoryByName(@PathVariable("userName") String userName) throws Exception {
    		List<Message> getMessageHistoryList =  messageRepository.getMessageHistoryListByName(userName,userName);

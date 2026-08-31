@@ -13,6 +13,10 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
 	@Query(value="Select * from messages where messages.sender_name=?1 OR messages.receiver_name=?2 ORDER BY created_at ASC",nativeQuery=true) // Native query or SQL
 	public List<Message> getMessageHistoryListByName(String senderName, String receiverName);
 
+	// The messages carrying a given chat attachment. A chat attachment has no owner column of
+	// its own, so the message that references it is what says who may read it.
+	List<Message> findByFileId(String fileId);
+
 	@Modifying
 	@Query(value="DELETE FROM messages WHERE sender_name=?1 OR receiver_name=?1", nativeQuery=true)
 	void deleteByUsername(String username);

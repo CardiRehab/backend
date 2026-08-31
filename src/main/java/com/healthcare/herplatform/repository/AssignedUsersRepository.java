@@ -17,6 +17,10 @@ public interface AssignedUsersRepository extends JpaRepository<AssignedUsers, In
 
 	boolean existsByUserIdAndAssignedUsers(int userId, String assignedUsers);
 
+	/* Is this patient (assigneduserid) assigned to this clinician (userid)? The id-based
+	 * counterpart of existsByUserIdAndAssignedUsers, which matches on the patient's username. */
+	boolean existsByUserIdAndAssignedUserId(int userId, Long assignedUserId);
+
 	@Modifying
 	@Query(value="DELETE FROM user_assignment WHERE assigneduserid=?1", nativeQuery=true)
 	void deleteByAssignedUserId(Long assignedUserId);

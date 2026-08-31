@@ -22,14 +22,16 @@ public class AssignedUsersController {
         this.assignedUsersService = assignedUsersService;
     }
     
-    @PreAuthorize("hasAnyRole('CRSPL', 'LHCP')")
+    /* The caller's own caseload: {userId} is the clinician themselves, not a patient. */
+    @PreAuthorize("hasAnyRole('CRSPL', 'LHCP') and @patientAccessGuard.canActAsSelf(authentication, #userId)")
     @GetMapping("/getconalluserrecords/{userId}")
 	public List<AssignedUsers> getUsersById(@PathVariable("userId") int userId) throws Exception {
 		List<AssignedUsers> assignedUsersList =  assignedUsersService.getAssignedUsersById(userId)  ;
 		return assignedUsersList;
 	}  
     
-    @PreAuthorize("hasRole('PATIENT')")
+    /* The caller's own clinician: {userId} is the patient themselves. */
+    @PreAuthorize("hasRole('PATIENT') and @patientAccessGuard.canActAsSelf(authentication, #userId)")
     @GetMapping("/getconcrspluserrecords/{userId}")
 	public List<AssignedUsers> getCrsplUsersById(@PathVariable("userId") int userId) throws Exception {
 		List<AssignedUsers> assignedCrsplUsersList =  assignedUsersService.getAssignedCrsplUsersById(userId)  ;
