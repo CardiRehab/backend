@@ -1,12 +1,12 @@
 package com.healthcare.herplatform.controllers;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import java.io.IOException;
 import java.net.MalformedURLException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 //import java.text.SimpleDateFormat;
@@ -25,6 +25,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -69,6 +70,8 @@ import com.healthcare.herplatform.services.CrsplListService;
 import com.healthcare.herplatform.services.EmailService;
 import com.healthcare.herplatform.jwt.JwtTokenResponse;
 import com.healthcare.herplatform.config.SecureFilesConfig;
+import com.healthcare.herplatform.config.SecureFilesConfig.CatalogItem;
+import com.healthcare.herplatform.security.SecureFileCatalog;
 
 //@CrossOrigin(origins = { "https://mbzjku.csb.app", "https://www.cardirehab.com", "https://cardirehab.com",
 //		"https://preprod.cardirehab.com", "http://cardirehab.com:9595", "http://www.cardirehab.com:9595",
@@ -78,6 +81,9 @@ import com.healthcare.herplatform.config.SecureFilesConfig;
 @RequestMapping("/api/auth")
 
 public class AuthController {
+
+	private static final Logger log = LoggerFactory.getLogger(AuthController.class);
+
 	@Autowired
 	AuthenticationManager authenticationManager;
 	@Autowired
@@ -110,6 +116,10 @@ public class AuthController {
 
 	@Autowired
 	private SecureFilesConfig secureFilesConfig; // <-- just inject here
+
+	/** The closed set of files GET /files/{filename} may serve. See SecureFileCatalog (V-02). */
+	@Autowired
+	private SecureFileCatalog secureFileCatalog;
 
 	private Path SECURE_BASE_DIR;
 
@@ -571,150 +581,59 @@ public class AuthController {
 		}
 	}
 
-	// Secure base folder (OUTSIDE webroot)
-	// private static final Path SECURE_BASE_DIR =
-	// Paths.get("/secure_files/files/").toAbsolutePath().normalize();
-	// private static final Path SECURE_BASE_DIR =
-	// Paths.get("secure_files/files").toAbsolutePath().normalize();
+	/**
+	 * Serves one item of shared patient-education material.
+	 *
+	 * <p>The path variable is <em>not</em> a filesystem path. It is a key into
+	 * {@link SecureFileCatalog}, which is the only thing that decides what this endpoint can return;
+	 * see that class for why the fix took this shape and why the filename stayed in the URL (V-02).
+	 * The files themselves live outside the webroot, under {@code secure.files.base-path}.
+	 */
 	@PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP', 'ADMIN')")
 	@GetMapping("/files/{filename}")
-	public ResponseEntity<Resource> getFile(@PathVariable String filename, Authentication auth) throws IOException {
+	public ResponseEntity<Resource> getFile(@PathVariable String filename, Authentication auth) {
 
-		// 1.Check if user is authenticated
-		if (auth == null || !auth.isAuthenticated()) {
-			return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-		}
+		// 1. The catalogue decides. Anything not in it — a traversal string, a guess at a file that
+		// happens to be in the directory, a guess at one that is not — is refused here, before the
+		// filesystem is touched at all, and the refusal is logged.
+		CatalogItem item = secureFileCatalog.require(auth, filename);
 
-		// 2️.Check role-based access (customize your logic)
-		if (!hasAccess(auth, filename)) {
-			return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
-		}
-
-		// 3️.Prevent directory traversal (e.g. "../../etc/passwd")
+		// 2. Traversal guard, kept as defence in depth. The catalogue already makes it
+		// unreachable, because a traversal string cannot be a catalogued filename. It costs
+		// nothing, and it is the control still standing if the catalogue is ever widened.
 		if (filename.contains("..")) {
-			return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+			throw new AccessDeniedException("Forbidden");
 		}
-
-		// 4️.Resolve and normalize path
-		Path filePath = SECURE_BASE_DIR.resolve(filename).normalize();
-		System.out.println("\nSECURE PATH → " + filePath + "\n");
-		// Ensure file is inside secure base directory
+		Path filePath = SECURE_BASE_DIR.resolve(item.getFilename()).normalize();
 		if (!filePath.startsWith(SECURE_BASE_DIR)) {
-			return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+			throw new AccessDeniedException("Forbidden");
 		}
 
-		// 5️.Load resource
+		// 3. Load. A catalogued file missing from disk is a deployment fault, not an attack, so it
+		// is loud in the log and silent in the response: the caller gets the same bare 403 as every
+		// other refusal, so the pair cannot be used to test which names are real.
 		Resource resource;
 		try {
 			resource = new UrlResource(filePath.toUri());
 		} catch (MalformedURLException e) {
-			return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+			resource = null;
+		}
+		if (resource == null || !resource.exists() || !resource.isReadable()) {
+			log.error("SECURE_FILE_MISSING id={} filename={} reason=catalogued but not readable on disk",
+					item.getId(), item.getFilename());
+			throw new AccessDeniedException("Forbidden");
 		}
 
-		if (!resource.exists()) {
-			return ResponseEntity.notFound().build();
-		}
-
-		// 6️.Detect MIME type dynamically
-		String contentType = detectContentType(filePath);
-
-		// 7️.Build and return response
-		return ResponseEntity.ok().contentType(MediaType.parseMediaType(contentType))
-				.header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + resource.getFilename() + "\"")
+		// 4. The content type comes from the catalogue, never from the file's bytes or its
+		// extension. attachment + nosniff means that even if something active were ever catalogued
+		// by mistake, the browser saves it instead of executing it on this origin against the
+		// token in localStorage (V-11). Neither client navigates to this URL — both fetch the
+		// bytes over XHR and render them from a blob — so attachment costs them nothing.
+		return ResponseEntity.ok()
+				.contentType(MediaType.parseMediaType(item.getContentType()))
+				.header(HttpHeaders.CONTENT_DISPOSITION,
+						"attachment; filename=\"" + item.getFilename().replace("\"", "") + "\"")
+				.header("X-Content-Type-Options", "nosniff")
 				.body(resource);
-	}
-
-	/**
-	 * Custom access control — adjust per your app logic.
-	 */
-	private boolean hasAccess(Authentication auth, String filename) {
-		// String role = auth.getAuthorities().toString();
-
-		// Allow users with ROLE_PATIENT to access any file
-		if (auth.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_PATIENT"))) {
-			return true;
-		}
-
-		// Allow users with ROLE_CRSPL to access any file
-		if (auth.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_CRSPL"))) {
-			return true;
-		}
-
-		// Allow users with ROLE_LHCP to access any file
-		if (auth.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_LHCP"))) {
-			return true;
-		}
-
-		// Allow users with ROLE_ADMIN to access any file
-		if (auth.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"))) {
-			return true;
-		}
-
-		return false; // default allow
-	}
-
-	/**
-	 * Safely determine the MIME type of a file. Falls back to manual mappings if
-	 * Files.probeContentType() fails.
-	 */
-	private String detectContentType(Path filePath) {
-		String contentType = null;
-
-		try {
-			contentType = Files.probeContentType(filePath);
-		} catch (IOException e) {
-			// ignore and fallback below
-		}
-
-		if (contentType == null) {
-			String fileName = filePath.getFileName().toString().toLowerCase();
-
-			if (fileName.endsWith(".pdf"))
-				contentType = "application/pdf";
-			else if (fileName.endsWith(".mp4"))
-				contentType = "video/mp4";
-			else if (fileName.endsWith(".doc"))
-				contentType = "application/msword";
-			else if (fileName.endsWith(".docx"))
-				contentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-			else if (fileName.endsWith(".xls"))
-				contentType = "application/vnd.ms-excel";
-			else if (fileName.endsWith(".xlsx"))
-				contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-			else if (fileName.endsWith(".ppt"))
-				contentType = "application/vnd.ms-powerpoint";
-			else if (fileName.endsWith(".pptx"))
-				contentType = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
-			else if (fileName.endsWith(".csv"))
-				contentType = "text/csv";
-			else if (fileName.endsWith(".json"))
-				contentType = "application/json";
-			else if (fileName.endsWith(".js"))
-				contentType = "application/javascript";
-			else if (fileName.endsWith(".txt"))
-				contentType = "text/plain";
-			else if (fileName.endsWith(".jpg") || fileName.endsWith(".jpeg"))
-				contentType = "image/jpeg";
-			else if (fileName.endsWith(".png"))
-				contentType = "image/png";
-			else if (fileName.endsWith(".gif"))
-				contentType = "image/gif";
-			else if (fileName.endsWith(".svg"))
-				contentType = "image/svg+xml";
-			else if (fileName.endsWith(".zip"))
-				contentType = "application/zip";
-			else if (fileName.endsWith(".rar"))
-				contentType = "application/vnd.rar";
-			else if (fileName.endsWith(".7z"))
-				contentType = "application/x-7z-compressed";
-			else if (fileName.endsWith(".xml"))
-				contentType = "application/xml";
-			else if (fileName.endsWith(".html") || fileName.endsWith(".htm"))
-				contentType = "text/html";
-			else
-				contentType = MediaType.APPLICATION_OCTET_STREAM_VALUE; // safe fallback
-		}
-
-		return contentType;
 	}
 }
