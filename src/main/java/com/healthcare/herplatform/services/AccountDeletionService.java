@@ -43,7 +43,7 @@ public class AccountDeletionService {
 		}
 		for (User user : expired) {
 			try {
-				accountPurger.purge(user.getId(), user.getUsername());
+				accountPurger.purge(user.getId(), user.getUsername(), user.getEmail());
 				System.out.println("[AccountDeletion] Purged account id=" + user.getId());
 			} catch (Exception e) {
 				// Log and continue so one bad record doesn't block the rest of the sweep.

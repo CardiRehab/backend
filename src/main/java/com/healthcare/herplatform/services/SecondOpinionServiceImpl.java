@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -18,6 +19,8 @@ import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -255,6 +258,54 @@ public class SecondOpinionServiceImpl implements SecondOpinionService {
 			}
 		}
 		requestRepo.delete(request);
+	}
+
+	@Override
+	@Transactional
+	public void deleteAllForPatient(String patientUsername) {
+		List<SecondOpinionRequest> requests = requestRepo.findByPatientUsernameOrderByCreatedAtDesc(patientUsername);
+		if (requests.isEmpty()) {
+			return;
+		}
+		List<Path> files = new ArrayList<>();
+		List<Path> requestDirs = new ArrayList<>();
+		for (SecondOpinionRequest request : requests) {
+			requestDirs.add(uploadRoot().resolve(String.valueOf(request.getId())));
+			for (SecondOpinionAttachment attachment : request.getAttachments()) {
+				files.add(uploadRoot().resolve(attachment.getStoredPath()).normalize());
+			}
+		}
+		// Attachment rows go with their request (cascade + orphanRemoval).
+		requestRepo.deleteAll(requests);
+
+		// Disk deletes can't be rolled back, so wait for the commit: if the purge
+		// fails, rows and files both survive for the next sweep to retry.
+		Runnable removeFiles = () -> {
+			for (Path file : files) {
+				try {
+					Files.deleteIfExists(file);
+				} catch (Exception e) {
+					System.out.println("[SecondOpinion] Could not delete " + file + ": " + e.getMessage());
+				}
+			}
+			for (Path dir : requestDirs) {
+				try {
+					Files.deleteIfExists(dir);
+				} catch (Exception ignored) {
+					// Not empty (stray file) — leave it rather than recurse blindly.
+				}
+			}
+		};
+		if (TransactionSynchronizationManager.isSynchronizationActive()) {
+			TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+				@Override
+				public void afterCommit() {
+					removeFiles.run();
+				}
+			});
+		} else {
+			removeFiles.run();
+		}
 	}
 
 	private static String extensionOf(String fileName) {
