@@ -11,11 +11,13 @@ import com.healthcare.herplatform.repository.AlcoholTobaccoRepository;
 import com.healthcare.herplatform.repository.AssignedActivitiesRepository;
 import com.healthcare.herplatform.repository.AssignedUsersRepository;
 import com.healthcare.herplatform.repository.ChatAttachmentsRepository;
+import com.healthcare.herplatform.repository.ContactusRepository;
 import com.healthcare.herplatform.repository.DeviceTokenRepository;
 import com.healthcare.herplatform.repository.Gad7Repository;
 import com.healthcare.herplatform.repository.HadsRepository;
 import com.healthcare.herplatform.repository.MessageRepository;
 import com.healthcare.herplatform.repository.OtherActivitiesRepository;
+import com.healthcare.herplatform.repository.PasswordResetTokenRepository;
 import com.healthcare.herplatform.repository.Phq9Repository;
 import com.healthcare.herplatform.repository.SmwtRepository;
 import com.healthcare.herplatform.repository.UserJoinUserAssignedRepository;
@@ -48,9 +50,12 @@ public class AccountPurger {
 	@Autowired private DeviceTokenRepository deviceTokenRepository;
 	@Autowired private MessageRepository messageRepository;
 	@Autowired private ChatAttachmentsRepository chatAttachmentsRepository;
+	@Autowired private PasswordResetTokenRepository passwordResetTokenRepository;
+	@Autowired private ContactusRepository contactusRepository;
+	@Autowired private SecondOpinionService secondOpinionService;
 
 	@Transactional
-	public void purge(Long userId, String username) {
+	public void purge(Long userId, String username, String email) {
 		int uid = userId.intValue();
 
 		// Health / activity records keyed by integer user id.
@@ -82,6 +87,16 @@ public class AccountPurger {
 			chatAttachmentsRepository.deleteAllById(attachmentIds);
 		}
 		messageRepository.deleteByUsername(username);
+
+		// Second-opinion requests, attachment rows, and the uploaded reports and
+		// videos on disk (removed after this transaction commits).
+		secondOpinionService.deleteAllForPatient(username);
+
+		// Records keyed by email.
+		if (email != null && !email.trim().isEmpty()) {
+			passwordResetTokenRepository.deleteByEmail(email);
+			contactusRepository.deleteByEmailIgnoreCase(email.trim());
+		}
 
 		// Finally the user row itself; JPA also clears the user_roles join rows.
 		userRepository.deleteById(userId);
