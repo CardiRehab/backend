@@ -4,12 +4,15 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import javax.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 //import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -22,7 +25,10 @@ import com.healthcare.herplatform.entity.WeekName;
 import com.healthcare.herplatform.models.ActivityInsertModel;
 import com.healthcare.herplatform.models.OthersActivityInsertModel;
 import com.healthcare.herplatform.repository.ActivityInsertRepository;
+import com.healthcare.herplatform.repository.AssignedActivitiesRepository;
 import com.healthcare.herplatform.repository.OthersActivityInsertRepository;
+import com.healthcare.herplatform.repository.WeekNameRepository;
+import com.healthcare.herplatform.security.PatientAccessGuard;
 import com.healthcare.herplatform.entity.WeekDay;
 import com.healthcare.herplatform.entity.Activities;
 import com.healthcare.herplatform.entity.OthersActivities;
@@ -50,6 +56,17 @@ public class ActivitiesDiaryController {
 	@Autowired
 	private PushNotificationService pushNotificationService;
 
+	// Indirect ownership lookups: these endpoints name a child record, and the patient who
+	// owns it has to be resolved through its parent before the guard can be asked.
+	@Autowired
+	private WeekNameRepository weekNameRepository;
+
+	@Autowired
+	private AssignedActivitiesRepository assignedActivitiesRepository;
+
+	@Autowired
+	private PatientAccessGuard patientAccessGuard;
+
 	public ActivitiesDiaryController(WeekNameService weekNameService, WeekDayService weekDayService,
 			ActivitiesService activitiesService) {
 		super();
@@ -59,6 +76,7 @@ public class ActivitiesDiaryController {
 	}
 	
 	/* To get all the weeknames based on a particular userid */
+	@PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP') and @patientAccessGuard.canAccessPatient(authentication, #userId)")
 	@GetMapping("/getuserweeknames/{userId}")
 	public List<WeekName> getSingleUserWeekNamesById(@PathVariable("userId") int userId) throws Exception {
 		List<WeekName> weekNamesList =  weekNameService.getWeekNamesByUserId(userId);
@@ -66,8 +84,18 @@ public class ActivitiesDiaryController {
 	} 
 	
 	/* To get all the weekdays based on weeknameid */
+	@PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP')")
 	@GetMapping("/getuserweekdays/{weekNameId}")
-	public List<WeekDay> getSingleUserWeekDaysById(@PathVariable("weekNameId") int weekNameId) throws Exception {
+	public List<WeekDay> getSingleUserWeekDaysById(@PathVariable("weekNameId") int weekNameId,
+			Authentication authentication) throws Exception {
+		// Indirect IDOR: the caller names a week, not a patient. Resolve the owning patient
+		// through week_name, and fail closed when the week does not exist so that a missing id
+		// and someone else's id are indistinguishable.
+		Optional<WeekName> weekName = weekNameRepository.findById(weekNameId);
+		if (!weekName.isPresent()) {
+			patientAccessGuard.denyUnresolved(authentication, weekNameId, "weekNameId does not resolve to a patient");
+		}
+		patientAccessGuard.assertCanAccessPatient(authentication, weekName.get().getUserId());
 		List<WeekDay> weekDaysList =  weekDayService.getWeekDaysByWeekNameId(weekNameId);
 		return weekDaysList;
 	} 
@@ -81,7 +109,7 @@ public class ActivitiesDiaryController {
 //	} 
 	
 	/* To get all the activities of a particular user based on userid */
-	@PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP')")
+	@PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP') and @patientAccessGuard.canAccessPatient(authentication, #userId)")
 	@GetMapping("/getuseractivitiesuid/{userId}")
 	public List<Activities> getSingleUserActivitiesByUserId(@PathVariable("userId") int userId) throws Exception {
 		List<Activities> activitiesList =  activitiesService.getActivitiesByUserId(userId);
@@ -89,7 +117,7 @@ public class ActivitiesDiaryController {
 	} 
 	
 	/* To get all the other activities of a particular user based on userid */
-	@PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP')")
+	@PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP') and @patientAccessGuard.canAccessPatient(authentication, #userId)")
 	@GetMapping("/getuserotheractivitiesuid/{userId}")
 	public List<OthersActivities> getSingleUserOtherActivitiesByUserId(@PathVariable("userId") int userId) throws Exception {
 		List<OthersActivities> otherActivitiesList =  activitiesService.getOtherActivitiesByUserId(userId);
@@ -105,7 +133,7 @@ public class ActivitiesDiaryController {
 	} 
 	
 	/* To insert the physical activity in database */
-	@PreAuthorize("hasRole('PATIENT')")
+	@PreAuthorize("hasRole('PATIENT') and @patientAccessGuard.canAccessPatient(authentication, #aiModel.userid)")
 	@PostMapping("/insertactivity")
     public ResponseEntity<?> insertActivity(@Valid @RequestBody ActivityInsertModel aiModel) {
 		Activities activityData = new Activities(
@@ -134,7 +162,7 @@ public class ActivitiesDiaryController {
     }
 
 	/* To insert the others activity in database */
-	@PreAuthorize("hasRole('PATIENT')")
+	@PreAuthorize("hasRole('PATIENT') and @patientAccessGuard.canAccessPatient(authentication, #otAiModel.userid)")
 	@PostMapping("/insertotactivity")
     public ResponseEntity<?> insertOtActivity(@Valid @RequestBody OthersActivityInsertModel otAiModel) {
 		OthersActivities othersActivityData = new OthersActivities(
@@ -161,7 +189,15 @@ public class ActivitiesDiaryController {
 	/* To insert all the assigned activities/ activities plan inside the database */
 	@PreAuthorize("hasAnyRole('CRSPL', 'LHCP')")
 	@PostMapping("/insertassignedactivities")
-    public List<AssignedActivities> insertAssignedActivities(@Valid @RequestBody List <AssignedActivities> assignedActivities) throws Exception{
+    public List<AssignedActivities> insertAssignedActivities(@Valid @RequestBody List <AssignedActivities> assignedActivities,
+			Authentication authentication) throws Exception{
+
+		// Each element names its own patient, so every one of them is checked. One unassigned
+		// patient refuses the whole batch rather than writing part of a plan: a clinician who
+		// saw a success for a half-written plan would have no way to tell which half landed.
+		patientAccessGuard.assertCanAccessAllPatients(authentication, assignedActivities == null
+				? null
+				: assignedActivities.stream().map(AssignedActivities::getUserid).collect(Collectors.toList()));
 
 		System.out.println("\n\n==================================");
 		//assignedActivities.forEach(System.out::println);
@@ -191,7 +227,7 @@ public class ActivitiesDiaryController {
     }
 	
 	/* To get all the assigned activities of a particular user based on userid */
-	@PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP')")
+	@PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP') and @patientAccessGuard.canAccessPatient(authentication, #userId)")
 	@GetMapping("/getassignedactivitiesuid/{userId}")
 	public List<AssignedActivities> getSingleUserAssignedActivitiesByUserId(@PathVariable("userId") int userId) throws Exception {
 		List<AssignedActivities> assignedActivitiesList =  activitiesService.getAssignedActivitiesByUserId(userId);
@@ -199,7 +235,7 @@ public class ActivitiesDiaryController {
 	} 
 	
 	/* To get all the assigned activities of a particular user based on userid and activity work status */
-	@PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP')")
+	@PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP') and @patientAccessGuard.canAccessPatient(authentication, #userId)")
 	@GetMapping("/getassignedactivitiesuid/{userId}/{wStatus}")
 	public List<AssignedActivities> getSingleUserAssignedActivitiesByUserIdAndWorkStatus(@PathVariable("userId") int userId, @PathVariable("wStatus") String wStatus) throws Exception {
 		List<AssignedActivities> assignedActivitiesList =  activitiesService.getAssignedActivitiesByUserIdAndWorkStatus(userId, wStatus);
@@ -210,7 +246,16 @@ public class ActivitiesDiaryController {
 	/* To update or delete the assigned activities of a particular user based on id(pk) and assign the given activity work status (updated or deleted) */
 	@PreAuthorize("hasAnyRole('CRSPL', 'LHCP')")
 	@PutMapping("/updAssignedActivity/{id}")
-	public AssignedActivities updateAssignedActivityById(@RequestBody AssignedActivities assignedActivity, @PathVariable("id") int id) throws Exception {
+	public AssignedActivities updateAssignedActivityById(@RequestBody AssignedActivities assignedActivity, @PathVariable("id") int id,
+			Authentication authentication) throws Exception {
+
+		// Indirect IDOR: the owning patient comes from the stored row, never from the request
+		// body, which the caller controls. A missing row is a denial, not an insert.
+		Optional<AssignedActivities> existing = assignedActivitiesRepository.findById(id);
+		if (!existing.isPresent()) {
+			patientAccessGuard.denyUnresolved(authentication, id, "assigned activity id does not resolve to a patient");
+		}
+		patientAccessGuard.assertCanAccessPatient(authentication, existing.get().getUserid());
 		
 //		System.out.println("\n\n==================================");
 //		System.out.println(assignedActivity);

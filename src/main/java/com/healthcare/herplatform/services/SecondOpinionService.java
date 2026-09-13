@@ -45,4 +45,10 @@ public interface SecondOpinionService {
 			boolean admin, Long doctorUserId);
 
 	void delete(Long id);
+
+	/**
+	 * Removes every request a patient made, with its attachments. Joins the
+	 * caller's transaction; files on disk are deleted only once it commits.
+	 */
+	void deleteAllForPatient(String patientUsername);
 }

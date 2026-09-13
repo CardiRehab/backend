@@ -6,9 +6,7 @@ import java.util.Map;
 import javax.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.security.core.Authentication;
 //import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -28,7 +26,6 @@ import com.healthcare.herplatform.models.AlcoholTobaccoInsertModel;
 import com.healthcare.herplatform.models.SmwtInsertModel;
 import com.healthcare.herplatform.services.FormAssessmentService;
 import com.healthcare.herplatform.services.PushNotificationService;
-import com.healthcare.herplatform.services.UserDetailsImpl;
 
 //@CrossOrigin(origins = {"https://mbzjku.csb.app", "https://www.cardirehab.com:8444", "https://cardirehab.com:8444", "https://preprod.cardirehab.com:8444", "https://www.cardirehab.com", "https://cardirehab.com", "https://preprod.cardirehab.com", "http://cardirehab.com:9595", "http://www.cardirehab.com:9595", "http://preprod.cardirehab.com:9595", "http://195.35.20.166:9595", "http://localhost:3000", "http://localhost:3002"}, allowCredentials = "true", maxAge = 3600)
 @RestController
@@ -60,28 +57,12 @@ public class AssessmentFormsController {
 		pushNotificationService.sendToAssignedDoctorsOf(patientUserId, title, body, data);
 	}
 
-	/**
-	 * CRSPL/LHCP may read any patient's forms. PATIENT may only read their own row
-	 * ({@code userId} must match the authenticated user id).
-	 */
-	private void assertFormReadAccess(Authentication authentication, int userId) {
-		boolean isPatient = authentication.getAuthorities().stream()
-				.anyMatch(a -> "ROLE_PATIENT".equals(a.getAuthority()));
-		if (!isPatient) {
-			return;
-		}
-		UserDetailsImpl user = (UserDetailsImpl) authentication.getPrincipal();
-		if (user.getId().intValue() != userId) {
-			throw new AccessDeniedException("Patients may only access their own assessment form data");
-		}
-	}
-	
 	/*
 	 * =================================== PHQ9 Write ==========================================
 	 * 
 	 */
 	/* To insert the PHQ9 form data in database */
-	@PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP')")
+	@PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP') and @patientAccessGuard.canAccessPatient(authentication, #phq9Model.userid)")
 	@PostMapping("/insertphq9")
 	public ResponseEntity<?> insertPHQ9(@Valid @RequestBody Phq9InsertModel phq9Model) throws Exception {
 
@@ -117,11 +98,10 @@ public class AssessmentFormsController {
 	 */
 
 	/* To get all the PHQ9 form data of a particular user based on userid */
-	@PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP')")
+	@PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP') and @patientAccessGuard.canAccessPatient(authentication, #userId)")
 	@GetMapping("/getphq9formdatabyuid/{userId}")
-	public List<Phq9> getPhq9FormDataByUserId(@PathVariable("userId") int userId, Authentication authentication)
+	public List<Phq9> getPhq9FormDataByUserId(@PathVariable("userId") int userId)
 			throws Exception {
-		assertFormReadAccess(authentication, userId);
 		List<Phq9> phq9FormDataList = formAssessmentService.getPhq9FormDataByUserId(userId);
 		return phq9FormDataList;
 	}
@@ -131,7 +111,7 @@ public class AssessmentFormsController {
 	 */
 
 	/* To insert the GAD7 form data in database */
-	@PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP')")
+	@PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP') and @patientAccessGuard.canAccessPatient(authentication, #gad7Model.userid)")
 	@PostMapping("/insertgad7")
 	public ResponseEntity<?> insertGAD7(@Valid @RequestBody Gad7InsertModel gad7Model) throws Exception {
 
@@ -166,11 +146,10 @@ public class AssessmentFormsController {
 	 */
 
 	/* To get all the Gad7 form data of a particular user based on userid */
-	@PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP')")
+	@PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP') and @patientAccessGuard.canAccessPatient(authentication, #userId)")
 	@GetMapping("/getgad7formdatabyuid/{userId}")
-	public List<Gad7> getGad7FormDataByUserId(@PathVariable("userId") int userId, Authentication authentication)
+	public List<Gad7> getGad7FormDataByUserId(@PathVariable("userId") int userId)
 			throws Exception {
-		assertFormReadAccess(authentication, userId);
 		List<Gad7> gad7FormDataList = formAssessmentService.getGad7FormDataByUserId(userId);
 		return gad7FormDataList;
 	}
@@ -179,7 +158,7 @@ public class AssessmentFormsController {
 	 * 
 	 */
 	/* To insert the HADS form data in database */
-	@PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP')")
+	@PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP') and @patientAccessGuard.canAccessPatient(authentication, #hadsModel.userid)")
 	@PostMapping("/inserthads")
 	public ResponseEntity<?> insertHADS(@Valid @RequestBody HadsInsertModel hadsModel) throws Exception {
 
@@ -223,11 +202,10 @@ public class AssessmentFormsController {
 	 */
 
 	/* To get all the Hads form data of a particular user based on userid */
-	@PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP')")
+	@PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP') and @patientAccessGuard.canAccessPatient(authentication, #userId)")
 	@GetMapping("/gethadsformdatabyuid/{userId}")
-	public List<Hads> getHadsFormDataByUserId(@PathVariable("userId") int userId, Authentication authentication)
+	public List<Hads> getHadsFormDataByUserId(@PathVariable("userId") int userId)
 			throws Exception {
-		assertFormReadAccess(authentication, userId);
 		List<Hads> hadsFormDataList = formAssessmentService.getHadsFormDataByUserId(userId);
 		return hadsFormDataList;
 	}
@@ -236,7 +214,7 @@ public class AssessmentFormsController {
 	 * 
 	 */
 	/* To insert the AlcoholTobacco form data in database */
-	@PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP')")
+	@PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP') and @patientAccessGuard.canAccessPatient(authentication, #alcoholTobaccoModel.userid)")
 	@PostMapping("/insertalcoholtobacco")
 	public ResponseEntity<?> insertAlcoholTobacco(@Valid @RequestBody AlcoholTobaccoInsertModel alcoholTobaccoModel) throws Exception {
 
@@ -282,11 +260,9 @@ public class AssessmentFormsController {
 	 */
 
 	/* To get all the AlcoholTobacco form data of a particular user based on userid */
-	@PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP')")
+	@PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP') and @patientAccessGuard.canAccessPatient(authentication, #userId)")
 	@GetMapping("/getalcoholtobaccoformdatabyuid/{userId}")
-	public List<AlcoholTobacco> getAlcoholTobaccoFormDataByUserId(@PathVariable("userId") int userId,
-			Authentication authentication) throws Exception {
-		assertFormReadAccess(authentication, userId);
+	public List<AlcoholTobacco> getAlcoholTobaccoFormDataByUserId(@PathVariable("userId") int userId) throws Exception {
 		List<AlcoholTobacco> alcoholTobaccoFormDataList = formAssessmentService
 				.getAlcoholTobaccoFormDataByUserId(userId);
 		return alcoholTobaccoFormDataList;
@@ -297,7 +273,7 @@ public class AssessmentFormsController {
 	 * 
 	 */
 	/* To insert the SMWT form data in database */
-	@PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP')")
+	@PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP') and @patientAccessGuard.canAccessPatient(authentication, #smwtModel.userid)")
 	@PostMapping("/insertsmwt")
 	public ResponseEntity<?> insertSMWT(@Valid @RequestBody SmwtInsertModel smwtModel) throws Exception {
 
@@ -335,11 +311,10 @@ public class AssessmentFormsController {
 	 * 
 	 */
 	/* To get all the Smwt form data of a particular user based on userid */
-	@PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP')")
+	@PreAuthorize("hasAnyRole('PATIENT', 'CRSPL', 'LHCP') and @patientAccessGuard.canAccessPatient(authentication, #userId)")
 	@GetMapping("/getsmwtformdatabyuid/{userId}")
-	public List<Smwt> getSmwtFormDataByUserId(@PathVariable("userId") int userId, Authentication authentication)
+	public List<Smwt> getSmwtFormDataByUserId(@PathVariable("userId") int userId)
 			throws Exception {
-		assertFormReadAccess(authentication, userId);
 		List<Smwt> smwtFormDataList = formAssessmentService.getSmwtFormDataByUserId(userId);
 		return smwtFormDataList;
 	}
